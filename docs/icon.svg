@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" role="img" aria-labelledby="title desc">
+  <title id="title">Audio Visualizer</title>
+  <desc id="desc">A warm peach audio spectrum transitions from solid bars to LED dots on a charcoal tile.</desc>
+  <rect width="400" height="400" rx="64" fill="#242424"/>
+  <rect x="16" y="16" width="368" height="368" rx="50" fill="none" stroke="#383838" stroke-width="2"/>
+  <g id="spectrum-bars" fill="#DFA078">
+    <rect x="61" y="244" width="22" height="56" rx="4"/>
+    <rect x="93" y="188" width="22" height="112" rx="4"/>
+    <rect x="125" y="132" width="22" height="168" rx="4"/>
+    <rect x="157" y="76" width="22" height="224" rx="4"/>
+  </g>
+  <g id="spectrum-leds" fill="#DFA078">
+    <g id="led-column-200">
+      <circle cx="200" cy="289" r="11"/>
+      <circle cx="200" cy="261" r="11"/>
+      <circle cx="200" cy="233" r="11"/>
+      <circle cx="200" cy="205" r="11"/>
+      <circle cx="200" cy="177" r="11"/>
+      <circle cx="200" cy="149" r="11"/>
+      <circle cx="200" cy="121" r="11"/>
+    </g>
+    <g id="led-column-232">
+      <circle cx="232" cy="289" r="11"/>
+      <circle cx="232" cy="261" r="11"/>
+      <circle cx="232" cy="233" r="11"/>
+      <circle cx="232" cy="205" r="11"/>
+      <circle cx="232" cy="177" r="11"/>
+      <circle cx="232" cy="149" r="11"/>
+    </g>
+    <g id="led-column-264">
+      <circle cx="264" cy="289" r="11"/>
+      <circle cx="264" cy="261" r="11"/>
+      <circle cx="264" cy="233" r="11"/>
+      <circle cx="264" cy="205" r="11"/>
+    </g>
+    <g id="led-column-296">
+      <circle cx="296" cy="289" r="11"/>
+      <circle cx="296" cy="261" r="11"/>
+      <circle cx="296" cy="233" r="11"/>
+    </g>
+    <g id="led-column-328">
+      <circle cx="328" cy="289" r="11"/>
+      <circle cx="328" cy="261" r="11"/>
+    </g>
+  </g>
+</svg>

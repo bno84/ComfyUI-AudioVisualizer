@@ -10,6 +10,7 @@ dependencies = []
 Repository = "https://github.com/bno84/ComfyUI-AudioVisualizer"
 
 [tool.comfy]
+Icon = "https://raw.githubusercontent.com/bno84/ComfyUI-AudioVisualizer/main/docs/icon.png"
 PublisherId = "bno84"
 DisplayName = "Audio Visualizer"
 "requires-comfyui" = ">=0.38.0"
