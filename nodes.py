@@ -25,14 +25,19 @@ class AudioVisualizer:
                                                                     "output; image and audio aren't requested"}),
                 "filename_prefix": ("STRING", {"default": "video/song_visualizer"}),
                 "style": (list(R.STYLES), {"tooltip": "bars: 64 bars. dots: LED matrix with dot_spacing in pixels"}),
-                "dot_spacing": ("INT", {"default": 12, "min": 4, "max": 64, "tooltip": "Distance between LED dots in pixels; also scales their diameter"}),
-                "color": ("COLOR", {"default": "#DFA078", "tooltip": "bar color (#RRGGBB)"}),
-                "gain": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 256.0, "step": 0.5,
-                                   "tooltip": "spectrum bar height multiplier; 0 = style default "
-                                              f"(bars {R.DEFAULT_GAIN['bars']:g}, dots {R.DEFAULT_GAIN['dots']:g})"}),
-                "glow": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05,
+                "dot_spacing": ("INT", {"default": 17, "min": 4, "max": 64, "display": "slider",
+                                        "tooltip": "Distance between LED dots in pixels; also scales their diameter"}),
+                "color": ("COLOR", {"default": "#9750c4", "tooltip": "bar color (#RRGGBB)"}),
+                "band_height": ("FLOAT", {"default": R.DEFAULT_BAND, "min": R.BAND_RANGE[0], "max": R.BAND_RANGE[1],
+                                          "step": 0.01, "display": "slider",
+                                          "tooltip": "height of the spectrum band as a fraction of the video height"}),
+                "gain": ("FLOAT", {"default": 1.3, "min": R.GAIN_RANGE[0], "max": R.GAIN_RANGE[1], "step": 0.05,
+                                   "display": "slider",
+                                   "tooltip": "height of the loudest moment, measured from the audio: 1.0 just "
+                                              "reaches the top of the band, 1.3 clips the loudest peaks"}),
+                "glow": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05, "display": "slider",
                                    "tooltip": "opacity of the blurred halo around bars; 0 disables it"}),
-                "trail": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 0.99, "step": 0.01,
+                "trail": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 0.99, "step": 0.01, "display": "slider",
                                     "tooltip": "per-frame brightness kept as bars fall; 0 disables it"}),
                 "fps": (list(R.FRAME_RATES), {"default": 60}),
                 "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 86400.0, "step": 0.1,
@@ -67,7 +72,8 @@ class AudioVisualizer:
 
     def run(self, image, audio, enabled, filename_prefix, style, gain, color, glow, trail, crf, audio_codec,
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
-            video_codec="h265", opus_bitrate=128, dot_spacing=12, codec=None, audio_bitrate=None, dot=None):
+            video_codec="h265", opus_bitrate=128, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
+            band_height=R.DEFAULT_BAND):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -107,7 +113,8 @@ class AudioVisualizer:
                  style=style, color=color, dot=dot_spacing if dot is None else dot, gain=gain, glow=glow, trail=trail, codec=codec or video_codec, crf=crf,
                  audio_codec=audio_codec, audio_bitrate=opus_bitrate if audio_bitrate is None else audio_bitrate,
                  start=start, duration=duration,
-                 fps=fps, aac_bitrate=aac_bitrate, h264_crf=h264_crf, h265_crf=h265_crf, metadata=metadata, on_frame=on_frame)
+                 fps=fps, aac_bitrate=aac_bitrate, h264_crf=h264_crf, h265_crf=h265_crf, metadata=metadata, on_frame=on_frame,
+                 band_height=band_height)
         return {"ui": {"images": [{"filename": file, "subfolder": subfolder, "type": "output"}], "animated": (True,)},
                 "result": (InputImpl.VideoFromFile(path),)}
 

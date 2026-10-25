@@ -1,8 +1,9 @@
 # Audio Visualizer for ComfyUI
 
 Turn a still image and audio into an MP4 with a bar or dots spectrum.
+Insert your own image and use the mock preview to adjust the style.
 
-![Bars and dots spectrum styles at gain 12](docs/styles-gain-12.png)
+![Node with visual style editor](docs/node-screenshot.png)
 
 ## Install
 
@@ -24,8 +25,18 @@ Add **🎵 Audio visualizer video (still + spectrum)** from **audio/visualize**
 and connect an image and audio. It saves to ComfyUI's output folder and
 returns a `VIDEO`, with the workflow embedded in the file.
 
-- **Visualization:** bars or dots, color, gain, glow, and trails. Dot spacing
-  appears in dots mode. Gain 0 uses the style default: bars 2, dots 32.
+- **Visualization:** bars or dots, color, band height, gain, glow, and trails.
+  Dot spacing appears in dots mode.
+- **Band height:** the spectrum band's share of the video height, 0.1–0.9
+  (default 0.35).
+- **Gain:** the height of the loudest moment. The audio is measured before
+  rendering, so 1.0 makes the loudest bar or dot column just reach the top of
+  the band, whatever the volume. The default 1.3 lets the loudest peaks clip;
+  the range is 0.25–2.
+- **Preview:** the node shows the connected still with the band at its height
+  and a mock spectrum peaking at the chosen gain, to check placement before
+  rendering. The spectrum shape is made up; only the real render uses the
+  audio.
 - **Timing:** 30/60 FPS, start, and duration in seconds. Duration 0 uses the
   rest of the audio.
 - **Codecs:** H.265 (CRF 18) or H.264 (CRF 22); FLAC (default), AAC
@@ -33,6 +44,13 @@ returns a `VIDEO`, with the workflow embedded in the file.
 
 The filename includes the style automatically, e.g.
 `video/song_visualizer_bars_00001_.mp4`. Disable `enabled` to skip rendering.
+
+Measuring takes one extra FFmpeg pass over the rendered span, a few percent of
+its length.
+
+Workflows saved with 0.1 keep their settings, but gain resets to 1.3: it used
+to be a raw volume. API prompts from 0.1 need `band_height` and a gain between
+0.25 and 2.0.
 
 ## Tests
 

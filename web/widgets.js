@@ -4,6 +4,8 @@ import { app } from "../../scripts/app.js";
 const originals = new WeakMap();
 const defaults = new WeakMap();
 const ORDER_KEY = "sdcpp_audio_visualizer_widget_order";
+// Before band_height existed, gain was showcqt's raw volume; it now scales the measured loudest moment.
+const MEASURED_GAIN_SINCE = "band_height";
 const LEGACY_ORDER = [
   "enabled", "filename_prefix", "style", "gain", "color", "dot", "glow", "trail",
   "codec", "crf", "audio_codec", "audio_bitrate", "start", "duration", "fps",
@@ -93,6 +95,12 @@ app.registerExtension({
             const renamed = { codec: "video_codec", audio_bitrate: "opus_bitrate", dot: "dot_spacing" };
             if (name) values[renamed[name] ?? name] = value;
           });
+          if (data.widgets_values?.length && !order.includes(MEASURED_GAIN_SINCE)) {
+            if (values.gain !== defaults.get(this).gain) {
+              console.info(`Audio visualizer: gain ${values.gain} was a raw volume; now ${defaults.get(this).gain} scales the measured loudest moment.`);
+            }
+            values.gain = defaults.get(this).gain;
+          }
           for (const widget of this.widgets) {
             if (Object.hasOwn(values, widget.name)) widget.value = values[widget.name];
           }

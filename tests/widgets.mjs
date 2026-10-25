@@ -10,8 +10,8 @@ await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64
 delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
-  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', dot_spacing: 12,
-  color: '#DFA078', gain: 0, glow: 0, trail: 0, fps: 60, start: 0, duration: 0,
+  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', dot_spacing: 17,
+  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, fps: 60, start: 0, duration: 0,
   video_codec: 'h265', h265_crf: 18, h264_crf: 22, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 128, crf: -1,
 };
@@ -42,7 +42,7 @@ const change = (node, name, value) => {
 test('three unlabeled groups, with dot spacing and codec controls beside their selector', () => {
   const node = new Node();
   assert.deepEqual(node.widgets.filter(w => !w.hidden).map(w => w.name), [
-    'enabled', 'filename_prefix', 'style', 'color', 'gain', 'glow', 'trail',
+    'enabled', 'filename_prefix', 'style', 'color', 'band_height', 'gain', 'glow', 'trail',
     '__separator_fps', 'fps', 'start', 'duration', '__separator_video_codec',
     'video_codec', 'h265_crf', 'audio_codec',
   ]);
@@ -65,11 +65,24 @@ test('original positional workflows migrate values and explicit CRF, including z
   node.configure({ widgets_values: [false, 'audio/old', 'dots', 12, '#9750c4', 24, 0.2, 0.3,
     'h264', 0, 'opus', 160, 2, 8] });
   assert.deepEqual(values(node), { ...initial, enabled: false, filename_prefix: 'audio/old',
-    style: 'dots', gain: 12, color: '#9750c4', dot_spacing: 24, glow: 0.2, trail: 0.3,
+    style: 'dots', color: '#9750c4', dot_spacing: 24, glow: 0.2, trail: 0.3,
     video_codec: 'h264', h264_crf: 0, audio_codec: 'opus', opus_bitrate: 160, start: 2, duration: 8 });
   const copy = new Node();
   copy.configure(node.serialize());
   assert.deepEqual(values(copy), values(node));
+});
+
+test('workflows from before band_height reset gain, which meant a raw volume', () => {
+  const node = new Node();
+  const order = Object.keys(initial).filter(name => name !== 'band_height');
+  node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order },
+    widgets_values: order.map(name => (name === 'gain' ? 12 : initial[name])) });
+  assert.equal(widget(node, 'gain').value, 1.3);
+  change(node, 'gain', 0.9);
+  const copy = new Node();
+  copy.configure(node.serialize());
+  assert.equal(widget(copy, 'gain').value, 0.9);
+  assert.equal(widget(copy, 'band_height').value, 0.35);
 });
 
 test('named widget orders survive reordering, renamed controls, and save/reload', () => {

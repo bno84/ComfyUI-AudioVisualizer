@@ -76,6 +76,7 @@ jobs:
           --pack ComfyUI-AudioVisualizer --cnr-id comfyui-audiovisualizer
           --node AudioVisualizer
           --route /extensions/ComfyUI-AudioVisualizer/widgets.js
+          --route /extensions/ComfyUI-AudioVisualizer/preview.js
 
   publish:
     name: Publish to the Comfy Registry
