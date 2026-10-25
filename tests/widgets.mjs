@@ -11,7 +11,7 @@ delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
   enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', dot_spacing: 17,
-  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0.4, fps: 60, start: 0, duration: 0,
+  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fps: 60, start: 0, duration: 0,
   video_codec: 'h265', h265_crf: 18, h264_crf: 22, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 128, crf: -1,
 };
@@ -115,13 +115,13 @@ test('separators follow current width and ignore a stale widget width', () => {
   }
 });
 
-test('workflows without vignette preserve the old look; strength survives save/reload', () => {
+test('workflows without vignette default to off; explicit strength survives save/reload', () => {
   const node = new Node();
   const order = Object.keys(initial).filter(name => name !== 'vignette');
   node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order },
     widgets_values: order.map(name => initial[name]) });
-  assert.equal(widget(node, 'vignette').value, 0.4);
-  for (const strength of [0, 0.2, 1]) {
+  assert.equal(widget(node, 'vignette').value, 0);
+  for (const strength of [0, 0.2, 0.4, 1]) {
     change(node, 'vignette', strength);
     const copy = new Node();
     copy.configure(node.serialize());

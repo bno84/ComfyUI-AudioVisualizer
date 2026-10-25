@@ -64,7 +64,7 @@ function draw(canvas, node, still) {
     g.fillText("Connect a Load Image node to preview your still", canvas.width / 2, canvas.height / 3);
   }
   // Approximate FFmpeg's edge darkening; zero leaves the still untouched.
-  const strength = value(node, "vignette") ?? 0.4;
+  const strength = value(node, "vignette") ?? 0;
   if (strength > 0) {
     const cx = canvas.width / 2, cy = canvas.height / 2, r = Math.hypot(cx, cy);
     const vignette = g.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);

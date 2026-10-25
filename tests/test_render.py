@@ -130,7 +130,7 @@ class RenderTest(unittest.TestCase):
         samples = bytes(5 * rate * 4)  # silence: spectrum cannot affect pixel checks
         corners = []
         with tempfile.TemporaryDirectory() as directory:
-            for strength in (0, 0.2, R.DEFAULT_VIGNETTE, 1):
+            for strength in (R.DEFAULT_VIGNETTE, 0.2, 0.4, 1):
                 output = str(Path(directory) / "vignette.mp4")
                 with patch.object(R, "full_scale", return_value=1.0):
                     R.render(bytes([200, 200, 200]) * (width * height), width, height,

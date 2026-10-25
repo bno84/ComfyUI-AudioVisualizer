@@ -11,7 +11,7 @@ import shutil
 from functools import lru_cache
 
 FRAME_RATES = (30, 60)
-DEFAULT_VIGNETTE = 0.4      # 0..1 maps to FFmpeg angle 0..PI/2; 0.4 preserves PI/5
+DEFAULT_VIGNETTE = 0.0      # 0..1 maps to FFmpeg angle 0..PI/2; 0.4 preserves PI/5
 DEFAULT_BAND = 0.35          # band height as a fraction of the video height
 BAND_RANGE = (0.1, 0.9)
 MEASURE_SHARE = 0.1          # share of the progress bar for measuring; encoding takes far longer
@@ -151,7 +151,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
 
     band_height is the band's share of the video height, 0.1 to 0.9. gain scales the band so that 1.0
     makes the loudest moment just reach its top; the audio is measured first.
-    vignette controls edge darkening from 0 (disabled) to 1 (strongest); default 0.4 preserves PI/5.
+    vignette controls edge darkening from 0 (disabled) to 1 (strongest); default 0 disables it; 0.4 reproduces the original PI/5.
     duration 0 = to the end of the audio. crf >= 0 overrides the codec-specific CRF for legacy API prompts.
     Returns the number of frames written.
     """
