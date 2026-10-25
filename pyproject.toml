@@ -1,0 +1,15 @@
+[project]
+name = "comfyui-audiovisualizer"
+description = "Turn a still image and audio into a spectrum visualizer video with bars or LED dots, using FFmpeg."
+version = "0.1.0"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/bno84/ComfyUI-AudioVisualizer"
+
+[tool.comfy]
+PublisherId = "bno84"
+DisplayName = "Audio Visualizer"
+"requires-comfyui" = ">=0.38.0"
