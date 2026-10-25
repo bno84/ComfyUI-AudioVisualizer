@@ -11,6 +11,7 @@ import shutil
 from functools import lru_cache
 
 FRAME_RATES = (30, 60)
+DEFAULT_VIGNETTE = 0.4      # 0..1 maps to FFmpeg angle 0..PI/2; 0.4 preserves PI/5
 DEFAULT_BAND = 0.35          # band height as a fraction of the video height
 BAND_RANGE = (0.1, 0.9)
 MEASURE_SHARE = 0.1          # share of the progress bar for measuring; encoding takes far longer
@@ -145,11 +146,12 @@ def full_scale(inputs, style, width, dot, fps, frames, on_frame=None):
 def render(pixels, width, height, samples, sample_rate, channels, output, *, style="bars", color="#9750c4",
            dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=128,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
-           band_height=DEFAULT_BAND):
+           band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE):
     """Render `output` (mp4). `pixels` are rgb24 bytes; `samples` are interleaved float32 little-endian bytes.
 
     band_height is the band's share of the video height, 0.1 to 0.9. gain scales the band so that 1.0
     makes the loudest moment just reach its top; the audio is measured first.
+    vignette controls edge darkening from 0 (disabled) to 1 (strongest); default 0.4 preserves PI/5.
     duration 0 = to the end of the audio. crf >= 0 overrides the codec-specific CRF for legacy API prompts.
     Returns the number of frames written.
     """
@@ -176,6 +178,8 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
         raise ValueError(f"image is {height}px tall: the visualizer band needs {band_h + BOTTOM_MARGIN}px")
     if not GAIN_RANGE[0] <= gain <= GAIN_RANGE[1]:
         raise ValueError(f"gain {gain}: use {GAIN_RANGE[0]} to {GAIN_RANGE[1]}, 1.0 reaching the top of the band")
+    if not 0.0 <= vignette <= 1.0:
+        raise ValueError(f"vignette {vignette}: use 0.0 to 1.0; 0 disables it")
     check_ffmpeg(codec, audio_codec)
 
     total = len(samples) / (4 * channels * sample_rate)
@@ -200,10 +204,12 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     else:
         aenc = ["-c:a", "libopus", "-b:a", f"{audio_bitrate}k"]
 
+    vignette_filter = f"vignette=PI/2*{vignette:.12g}," if vignette > 0 else ""
+
     def graph(level):
         X, W, bands, grid, _ = _spectrum(style, width, H, dot, fps, level)
         return X, f"""
-        [0:v]format=rgb24,vignette=PI/5,
+        [0:v]format=rgb24,{vignette_filter}
           loop=loop=-1:size=1,setpts=N/({fps}*TB)[scene];
 
         [1:a]{bands},

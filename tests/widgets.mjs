@@ -11,7 +11,7 @@ delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
   enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', dot_spacing: 17,
-  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, fps: 60, start: 0, duration: 0,
+  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0.4, fps: 60, start: 0, duration: 0,
   video_codec: 'h265', h265_crf: 18, h264_crf: 22, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 128, crf: -1,
 };
@@ -42,7 +42,7 @@ const change = (node, name, value) => {
 test('three unlabeled groups, with dot spacing and codec controls beside their selector', () => {
   const node = new Node();
   assert.deepEqual(node.widgets.filter(w => !w.hidden).map(w => w.name), [
-    'enabled', 'filename_prefix', 'style', 'color', 'band_height', 'gain', 'glow', 'trail',
+    'enabled', 'filename_prefix', 'style', 'color', 'band_height', 'gain', 'glow', 'trail', 'vignette',
     '__separator_fps', 'fps', 'start', 'duration', '__separator_video_codec',
     'video_codec', 'h265_crf', 'audio_codec',
   ]);
@@ -112,5 +112,20 @@ test('separators follow current width and ignore a stale widget width', () => {
       assert.deepEqual(points, [[12, 26], [width - 12, 26]]);
       assert.equal(separator.options.serialize, false);
     }
+  }
+});
+
+test('workflows without vignette preserve the old look; strength survives save/reload', () => {
+  const node = new Node();
+  const order = Object.keys(initial).filter(name => name !== 'vignette');
+  node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order },
+    widgets_values: order.map(name => initial[name]) });
+  assert.equal(widget(node, 'vignette').value, 0.4);
+  for (const strength of [0, 0.2, 1]) {
+    change(node, 'vignette', strength);
+    const copy = new Node();
+    copy.configure(node.serialize());
+    assert.equal(widget(copy, 'vignette').value, strength);
+    assert.equal(widget(copy, 'fps').value, 60);
   }
 });

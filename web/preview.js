@@ -63,13 +63,16 @@ function draw(canvas, node, still) {
     g.textAlign = "center";
     g.fillText("Connect a Load Image node to preview your still", canvas.width / 2, canvas.height / 3);
   }
-  // ffmpeg's vignette=PI/5 darkens the corners.
-  const cx = canvas.width / 2, cy = canvas.height / 2, r = Math.hypot(cx, cy);
-  const vignette = g.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
-  vignette.addColorStop(0, "rgba(0,0,0,0)");
-  vignette.addColorStop(1, "rgba(0,0,0,0.45)");
-  g.fillStyle = vignette;
-  g.fillRect(0, 0, canvas.width, canvas.height);
+  // Approximate FFmpeg's edge darkening; zero leaves the still untouched.
+  const strength = value(node, "vignette") ?? 0.4;
+  if (strength > 0) {
+    const cx = canvas.width / 2, cy = canvas.height / 2, r = Math.hypot(cx, cy);
+    const vignette = g.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.45 * strength / 0.4)})`);
+    g.fillStyle = vignette;
+    g.fillRect(0, 0, canvas.width, canvas.height);
+  }
 
   g.translate(band.x * scale, band.y * scale);
   g.scale(scale, scale);
@@ -127,7 +130,7 @@ class Preview {
   // Cheap enough to call on every canvas draw; repaints only when something changed.
   update() {
     const still = stillOf(this.node);
-    const names = ["style", "band_height", "dot_spacing", "color", "glow", "gain"];
+    const names = ["style", "band_height", "dot_spacing", "color", "glow", "gain", "vignette"];
     const width = Math.round(this.canvas.clientWidth * devicePixelRatio);
     const key = JSON.stringify([still?.src, width, names.map((n) => value(this.node, n))]);
     if (key === this.key || !width) return;

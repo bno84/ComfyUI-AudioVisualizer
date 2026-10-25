@@ -87,6 +87,13 @@ class BitrateTest(unittest.TestCase):
                     self.assertNotIn("-b:a", command)
 
 
+class VignetteValidationTest(unittest.TestCase):
+    def test_rejects_invalid_strength(self):
+        for strength in (-0.1, 1.1, float("nan"), float("inf")):
+            with self.subTest(strength=strength), self.assertRaisesRegex(ValueError, "vignette"):
+                R.render(b"", 640, 144, b"", 48000, 1, "unused.mp4", vignette=strength)
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class RenderTest(unittest.TestCase):
     def test_rates_codecs_styles_and_metadata(self):
@@ -117,6 +124,27 @@ class RenderTest(unittest.TestCase):
                         self.assertEqual(values, sorted(values))
                         self.assertEqual(progress[-1][0], progress[-1][1])
                         self.assertGreater(progress[-1][1], fps)
+
+    def test_vignette_strength_changes_edge_darkening_and_zero_preserves_the_still(self):
+        rate, width, height = 8000, 640, 144
+        samples = bytes(5 * rate * 4)  # silence: spectrum cannot affect pixel checks
+        corners = []
+        with tempfile.TemporaryDirectory() as directory:
+            for strength in (0, 0.2, R.DEFAULT_VIGNETTE, 1):
+                output = str(Path(directory) / "vignette.mp4")
+                with patch.object(R, "full_scale", return_value=1.0):
+                    R.render(bytes([200, 200, 200]) * (width * height), width, height,
+                             samples, rate, 1, output, fps=30, codec="h264", crf=0, vignette=strength)
+                # At 2s both fades are inactive. Sample above the visualizer band.
+                frame = subprocess.check_output([
+                    "ffmpeg", "-v", "error", "-ss", "2", "-i", output, "-frames:v", "1",
+                    "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
+                offset = (8 * width + 8) * 3
+                corner = sum(frame[offset:offset + 3]) / 3
+                corners.append(corner)
+                if strength == 0:
+                    self.assertAlmostEqual(corner, 200, delta=3)
+        self.assertTrue(all(a > b for a, b in zip(corners, corners[1:])), corners)
 
     def test_gain_one_makes_the_loudest_moment_reach_the_top_at_any_volume(self):
         rate, fps = 48000, 30

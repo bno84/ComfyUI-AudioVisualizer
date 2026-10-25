@@ -33,6 +33,9 @@ returns a `VIDEO`, with the workflow embedded in the file.
   rendering, so 1.0 makes the loudest bar or dot column just reach the top of
   the band, whatever the volume. The default 1.3 lets the loudest peaks clip;
   the range is 0.25–2.
+- **Vignette:** edge darkening from 0 (off) to 1 (strongest). The default
+  0.4 preserves the original look; existing workflows keep that strength.
+  The preview approximates the selected strength.
 - **Preview:** the node shows the connected still with the band at its height
   and a mock spectrum peaking at the chosen gain, to check placement before
   rendering. The spectrum shape is made up; only the real render uses the

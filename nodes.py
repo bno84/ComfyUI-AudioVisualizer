@@ -39,6 +39,9 @@ class AudioVisualizer:
                                    "tooltip": "opacity of the blurred halo around bars; 0 disables it"}),
                 "trail": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 0.99, "step": 0.01, "display": "slider",
                                     "tooltip": "per-frame brightness kept as bars fall; 0 disables it"}),
+                "vignette": ("FLOAT", {"default": R.DEFAULT_VIGNETTE, "min": 0.0, "max": 1.0, "step": 0.05,
+                                       "display": "slider",
+                                       "tooltip": "edge darkening: 0 disables it, 0.4 matches the original, 1 is strongest"}),
                 "fps": (list(R.FRAME_RATES), {"default": 60}),
                 "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 86400.0, "step": 0.1,
                                     "tooltip": "seconds into the audio"}),
@@ -73,7 +76,7 @@ class AudioVisualizer:
     def run(self, image, audio, enabled, filename_prefix, style, gain, color, glow, trail, crf, audio_codec,
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
             video_codec="h265", opus_bitrate=128, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
-            band_height=R.DEFAULT_BAND):
+            band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -114,7 +117,7 @@ class AudioVisualizer:
                  audio_codec=audio_codec, audio_bitrate=opus_bitrate if audio_bitrate is None else audio_bitrate,
                  start=start, duration=duration,
                  fps=fps, aac_bitrate=aac_bitrate, h264_crf=h264_crf, h265_crf=h265_crf, metadata=metadata, on_frame=on_frame,
-                 band_height=band_height)
+                 band_height=band_height, vignette=vignette)
         return {"ui": {"images": [{"filename": file, "subfolder": subfolder, "type": "output"}], "animated": (True,)},
                 "result": (InputImpl.VideoFromFile(path),)}
 
