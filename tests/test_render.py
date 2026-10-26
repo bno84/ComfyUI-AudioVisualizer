@@ -11,6 +11,9 @@ from unittest.mock import patch
 
 import av
 import numpy as np
+# Windows/Python 3.10 may run an OS probe while importing these helpers.
+# Import before setUp blocks subprocesses during renderer execution.
+import numpy.testing as npt
 
 spec = importlib.util.spec_from_file_location("visualizer_render", Path(__file__).resolve().parents[1] / "render.py")
 R = importlib.util.module_from_spec(spec)
@@ -118,7 +121,7 @@ class RenderTest(unittest.TestCase):
                     self.assertAlmostEqual(levels[-1], 180, delta=3)
                 if max(fade_in, fade_out) < 2:
                     self.assertAlmostEqual(levels[30], 180, delta=3)
-                np.testing.assert_allclose(audio_samples(path), data, atol=1.2e-7)
+                npt.assert_allclose(audio_samples(path), data, atol=1.2e-7)
 
     def test_trim_stereo_and_noninteger_duration(self):
         rate = 44100
@@ -127,7 +130,7 @@ class RenderTest(unittest.TestCase):
         path, frames = self.render(data=data, rate=rate, style="(none)", start=start, duration=duration)
         expected = data[round(start*rate):round(start*rate)+round(duration*rate)]
         self.assertEqual(frames, int(len(expected) / rate * 30))
-        np.testing.assert_allclose(audio_samples(path), expected, atol=1.2e-7)
+        npt.assert_allclose(audio_samples(path), expected, atol=1.2e-7)
         with av.open(str(path)) as source:
             stream = source.streams.audio[0]
             self.assertAlmostEqual(float(stream.duration * stream.time_base), len(expected) / rate)
@@ -202,10 +205,10 @@ class RenderTest(unittest.TestCase):
         for style in ("bars", "dots"):
             plain, glow, trail = frames(style), frames(style, glow=1), frames(style, trail=.8)
             self.assertTrue(np.any(plain[15][-65:] != 180))
-            np.testing.assert_array_equal(plain[15][:-73], 180)
+            npt.assert_array_equal(plain[15][:-73], 180)
             self.assertGreater(np.abs(plain[15].astype(int)-glow[15]).max(), 0)
             self.assertGreater(max(np.abs(a.astype(int)-b).max() for a,b in ((plain[n], trail[n]) for n in range(33, 45))), 0)
-            np.testing.assert_array_equal(plain[89], trail[89])
+            npt.assert_array_equal(plain[89], trail[89])
 
     def test_quality_controls_and_legacy_override(self):
         for options, expected in [
@@ -278,7 +281,7 @@ class RenderTest(unittest.TestCase):
                         self.assertEqual(source.streams.audio[0].layout.name, "7.1")
                         self.assertTrue(list(source.decode(audio=0)))
                     if codec == "flac":
-                        np.testing.assert_allclose(audio_samples(path), data, atol=1.2e-7)
+                        npt.assert_allclose(audio_samples(path), data, atol=1.2e-7)
 
     def test_measurement_cancellation_does_not_create_an_output(self):
         def interrupt(n, total):
