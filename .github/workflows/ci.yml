@@ -1,7 +1,7 @@
 name: CI and release
 
 # Every push and pull request runs the checks. A pushed v* tag also publishes
-# to the Comfy Registry, but only after both check jobs pass.
+# to the Comfy Registry after required checks pass. macOS runs independently.
 on:
   push:
     branches: [main]
@@ -20,6 +20,7 @@ env:
 
 jobs:
   checks:
+    timeout-minutes: 5
     name: Metadata, security scan and frontend tests
     runs-on: ubuntu-latest
     steps:
@@ -51,12 +52,36 @@ jobs:
         run: node --test tests/*.mjs
 
   render:
+    timeout-minutes: 5
     name: Render on ${{ matrix.os }} / Python ${{ matrix.runtime.python }} / av${{ matrix.runtime.av }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
+        runtime:
+          - {python: "3.10", av: "==17.0.0"}
+          - {python: "3.12", av: ">=17.0.0"}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.runtime.python }}
+      - name: Install prebuilt runtime dependencies
+        run: >-
+          python -m pip install --only-binary=:all: numpy "av${{ matrix.runtime.av }}"
+      - name: Real library filter and encoder tests
+        run: python -m unittest discover -s tests -v
+
+  # Independent from publish so unavailable macOS runners cannot hold a release.
+  render_macos:
+    timeout-minutes: 5
+    name: Optional macOS render / Python ${{ matrix.runtime.python }} / av${{ matrix.runtime.av }}
+    runs-on: macos-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
         runtime:
           - {python: "3.10", av: "==17.0.0"}
           - {python: "3.12", av: ">=17.0.0"}
@@ -72,6 +97,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   comfyui:
+    timeout-minutes: 5
     name: Loads in ComfyUI (CPU)
     runs-on: ubuntu-latest
     steps:
@@ -97,6 +123,7 @@ jobs:
           --route /extensions/ComfyUI-AudioVisualizer/preview.js
 
   publish:
+    timeout-minutes: 5
     name: Publish to the Comfy Registry
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [checks, render, comfyui]
