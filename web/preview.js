@@ -10,6 +10,7 @@ const PLACEHOLDER = [1280, 720];
 
 // The band in image pixels, as render.py lays it out.
 export function bandLayout({ width, height, bandHeight, style, dot }) {
+  if (["(none)", "none"].includes(style)) return null;
   const h = 2 * Math.round((height * bandHeight) / 2);   // showcqt needs an even height
   const y = height - h - BOTTOM_MARGIN;
   if (style === "dots") {
@@ -72,6 +73,11 @@ function draw(canvas, node, still) {
     vignette.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.45 * strength / 0.4)})`);
     g.fillStyle = vignette;
     g.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  if (!band) {
+    g.restore();
+    return { width, height, band };
   }
 
   g.translate(band.x * scale, band.y * scale);
@@ -140,7 +146,7 @@ class Preview {
     this.canvas.height = Math.round(width * aspect);
     const { height, band } = draw(this.canvas, this.node, still);
     const gain = value(this.node, "gain") ?? 1.3;
-    this.caption.textContent = `Mock spectrum · band ${band.h}px of ${height}px · loudest moment at ${Math.round(gain * 100)}% of the band`;
+    this.caption.textContent = !band ? "Still image · no spectrum" : `Mock spectrum · band ${band.h}px of ${height}px · loudest moment at ${Math.round(gain * 100)}% of the band`;
     if (aspect !== this.aspect) {
       this.aspect = aspect;
       this.node.setSize([this.node.size[0], this.node.computeSize()[1]]);

@@ -20,7 +20,7 @@ MIN_BAND_H = 16
 MEASURE_H = 512              # rows for measuring the loudest bar height
 MARGIN = 6                   # gap between bars
 BOTTOM_MARGIN = 3
-STYLES = ("bars", "dots")
+STYLES = ("(none)", "bars", "dots")
 CODECS = ("h265", "h264")
 AUDIO_CODECS = ("flac", "opus", "aac")
 DEFAULT_CRF = {"h265": 18, "h264": 22}
@@ -153,8 +153,11 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     makes the loudest moment just reach its top; the audio is measured first.
     vignette controls edge darkening from 0 (disabled) to 1 (strongest); default 0 disables it; 0.4 reproduces the original PI/5.
     duration 0 = to the end of the audio. crf >= 0 overrides the codec-specific CRF for legacy API prompts.
+    style (none) keeps only the still and audio, without spectrum analysis.
     Returns the number of frames written.
     """
+    if style == "none":  # compatibility with the initial no-spectrum implementation
+        style = "(none)"
     if style not in STYLES:
         raise ValueError(f"unknown style {style!r}")
     if codec not in CODECS:
@@ -168,16 +171,18 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
         raise ValueError(f"color {color!r}: use 0xRRGGBB, #RRGGBB or an ffmpeg color name")
     if width % 2 or height % 2:
         raise ValueError(f"image is {width}x{height}: yuv420p needs an even width and height")
-    # showcqt needs an even height.
-    band_h = 2 * round(height * band_height / 2)
-    if not BAND_RANGE[0] <= band_height <= BAND_RANGE[1]:
-        raise ValueError(f"band_height {band_height}: use {BAND_RANGE[0]} to {BAND_RANGE[1]} of the video height")
-    if band_h < max(MIN_BAND_H, dot if style == "dots" else 0):
-        raise ValueError(f"band_height {band_height} is {band_h}px of this {height}px image: too low for the band")
-    if height < band_h + BOTTOM_MARGIN:
-        raise ValueError(f"image is {height}px tall: the visualizer band needs {band_h + BOTTOM_MARGIN}px")
-    if not GAIN_RANGE[0] <= gain <= GAIN_RANGE[1]:
-        raise ValueError(f"gain {gain}: use {GAIN_RANGE[0]} to {GAIN_RANGE[1]}, 1.0 reaching the top of the band")
+    band_h = 0
+    if style != "(none)":
+        # showcqt needs an even height.
+        band_h = 2 * round(height * band_height / 2)
+        if not BAND_RANGE[0] <= band_height <= BAND_RANGE[1]:
+            raise ValueError(f"band_height {band_height}: use {BAND_RANGE[0]} to {BAND_RANGE[1]} of the video height")
+        if band_h < max(MIN_BAND_H, dot if style == "dots" else 0):
+            raise ValueError(f"band_height {band_height} is {band_h}px of this {height}px image: too low for the band")
+        if height < band_h + BOTTOM_MARGIN:
+            raise ValueError(f"image is {height}px tall: the visualizer band needs {band_h + BOTTOM_MARGIN}px")
+        if not GAIN_RANGE[0] <= gain <= GAIN_RANGE[1]:
+            raise ValueError(f"gain {gain}: use {GAIN_RANGE[0]} to {GAIN_RANGE[1]}, 1.0 reaching the top of the band")
     if not 0.0 <= vignette <= 1.0:
         raise ValueError(f"vignette {vignette}: use 0.0 to 1.0; 0 disables it")
     check_ffmpeg(codec, audio_codec)
@@ -207,10 +212,14 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     vignette_filter = f"vignette=PI/2*{vignette:.12g}," if vignette > 0 else ""
 
     def graph(level):
+        scene = (f"[0:v]format=rgb24,{vignette_filter}"
+                 f"loop=loop=-1:size=1,setpts=N/({fps}*TB)")
+        finish = f"fade=in:st=0:d=1.5,fade=out:st={fade_out:.2f}:d=2.5,fps={fps},format=yuv420p[v]"
+        if style == "(none)":
+            return f"{scene},{finish}"
         X, W, bands, grid, _ = _spectrum(style, width, H, dot, fps, level)
-        return X, f"""
-        [0:v]format=rgb24,{vignette_filter}
-          loop=loop=-1:size=1,setpts=N/({fps}*TB)[scene];
+        return f"""
+        {scene}[scene];
 
         [1:a]{bands},
           scale={W}:{H}:flags=neighbor[bands];
@@ -223,8 +232,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
 
         [scene][glow]overlay={X}:{Y}:shortest=1:format=rgb[s1];
         [s1][sharp]overlay={X}:{Y}:shortest=1:format=rgb,
-          fade=in:st=0:d=1.5,fade=out:st={fade_out:.2f}:d=2.5,
-          fps={fps},format=yuv420p[v]
+          {finish}
     """
 
     with tempfile.TemporaryDirectory(prefix="audio_viz_") as tmp:
@@ -238,7 +246,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
                        "-f", "f32le", "-ar", str(sample_rate), "-ac", str(channels), "-i", audio_path]
         # One progress bar that only moves forward: ComfyUI drops updates below the last one sent.
         # Measuring fills the first MEASURE_SHARE, encoding the rest; extra passes hold their share.
-        measure_units = int(frames * MEASURE_SHARE / (1 - MEASURE_SHARE))
+        measure_units = int(frames * MEASURE_SHARE / (1 - MEASURE_SHARE)) if style != "(none)" else 0
         total, shown = frames + measure_units, 0
 
         def measuring(written, _frames):
@@ -248,8 +256,9 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
                 on_frame(shown, total)
 
         # Height grows with the level to the power 2/3, so gain g needs g ** 1.5 times full scale.
-        level = full_scale(audio_input, style, width, dot, fps, frames, measuring) * gain ** 1.5
-        X, filters = graph(level)
+        level = (full_scale(audio_input, style, width, dot, fps, frames, measuring) * gain ** 1.5
+                 if style != "(none)" else 1.0)
+        filters = graph(level)
         cmd = ["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-y", "-nostats", "-progress", "pipe:1",
                "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-i", image_path, *audio_input]
         meta_args = ["-map_metadata", "-1"]

@@ -1,6 +1,6 @@
 # Audio Visualizer for ComfyUI
 
-Turn a still image and audio into an MP4 with a bar or dots spectrum.
+Turn a still image and audio into an MP4 with a bar or dots spectrum, or just the still image.
 Insert your own image and use the mock preview to adjust the style.
 
 ![Node with visual style editor](docs/node-screenshot.png)
@@ -25,8 +25,8 @@ Add **🎵 Audio visualizer video (still + spectrum)** from **audio/visualize**
 and connect an image and audio. It saves to ComfyUI's output folder and
 returns a `VIDEO`, with the workflow embedded in the file.
 
-- **Visualization:** bars or dots, color, band height, gain, glow, and trails.
-  Dot spacing appears in dots mode.
+- **Visualization:** (none) (still image + audio only), bars, or dots, color, band height, gain, glow, and trails.
+  Spectrum controls hide in (none) mode; dot spacing appears in dots mode.
 - **Band height:** the spectrum band's share of the video height, 0.1–0.9
   (default 0.35).
 - **Gain:** the height of the loudest moment. The audio is measured before
@@ -49,7 +49,7 @@ returns a `VIDEO`, with the workflow embedded in the file.
 The filename includes the style automatically, e.g.
 `video/song_visualizer_bars_00001_.mp4`. Disable `enabled` to skip rendering.
 
-Measuring takes one extra FFmpeg pass over the rendered span, a few percent of
+In bars and dots modes, measuring takes one extra FFmpeg pass over the rendered span, a few percent of
 its length.
 
 Workflows saved with 0.1 keep their settings, but gain resets to 1.3: it used

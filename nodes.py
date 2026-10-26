@@ -24,7 +24,7 @@ class AudioVisualizer:
                 "enabled": ("BOOLEAN", {"default": True, "tooltip": "off = render nothing and block the video "
                                                                     "output; image and audio aren't requested"}),
                 "filename_prefix": ("STRING", {"default": "video/song_visualizer"}),
-                "style": (list(R.STYLES), {"tooltip": "bars: 64 bars. dots: LED matrix with dot_spacing in pixels"}),
+                "style": (list(R.STYLES), {"tooltip": "bars: 64 bars. dots: LED matrix. (none): still image and audio only"}),
                 "dot_spacing": ("INT", {"default": 17, "min": 4, "max": 64, "display": "slider",
                                         "tooltip": "Distance between LED dots in pixels; also scales their diameter"}),
                 "color": ("COLOR", {"default": "#9750c4", "tooltip": "bar color (#RRGGBB)"}),

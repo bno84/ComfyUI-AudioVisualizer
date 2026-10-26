@@ -3,8 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = (await readFile(new URL('../web/preview.js', import.meta.url), 'utf8'))
+  .replace('function draw(', 'export function draw(')
   .replace('import { app } from "../../scripts/app.js";', 'const app = { registerExtension() {} };');
-const { bandLayout, mockLevels } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { bandLayout, mockLevels, draw } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('the band sits where render.py puts it', () => {
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.16, style: 'bars', dot: 12 }),
@@ -25,4 +26,16 @@ test('the mock spectrum peaks at exactly the gain', () => {
   const clipped = levels.filter(level => level > 1).length;
   assert.ok(clipped >= 1 && clipped <= 3, `${clipped} clipped columns`);
   assert.ok(levels.filter(level => level < 0.5).length > 48);
+});
+
+test('none preview draws the still without a band or spectrum', () => {
+  assert.equal(bandLayout({ width: 640, height: 144, bandHeight: 0.35, style: '(none)', dot: 17 }), null);
+  let drawn = false, restored = false;
+  const canvas = { width: 640, height: 144, getContext() {
+    return { save() {}, clearRect() {}, drawImage() { drawn = true; }, restore() { restored = true; } };
+  }};
+  const node = { widgets: [{ name: 'style', value: '(none)' }] };
+  const result = draw(canvas, node, { naturalWidth: 640, naturalHeight: 144 });
+  assert.equal(result.band, null);
+  assert.ok(drawn && restored);
 });

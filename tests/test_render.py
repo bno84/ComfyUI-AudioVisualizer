@@ -94,6 +94,25 @@ class VignetteValidationTest(unittest.TestCase):
                 R.render(b"", 640, 144, b"", 48000, 1, "unused.mp4", vignette=strength)
 
 
+class NoneStyleTest(unittest.TestCase):
+    def test_none_skips_spectrum_analysis_and_band_constraints(self):
+        with patch.object(R, "check_ffmpeg"), patch.object(R, "full_scale") as measure, \
+                patch.object(R, "_spectrum") as spectrum, patch.object(R.subprocess, "Popen") as popen:
+            process = MagicMock()
+            process.stdout.__iter__.return_value = iter(["frame=30"])
+            process.wait.return_value = 0
+            popen.return_value = process
+            progress = []
+            R.render(b"", 32, 16, bytes(8000 * 4), 8000, 1, "unused.mp4",
+                     style="(none)", fps=30,
+                     on_frame=lambda done, total: progress.append((done, total)))
+            measure.assert_not_called()
+            spectrum.assert_not_called()
+            command = popen.call_args.args[0]
+            graph = command[command.index("-filter_complex") + 1]
+            self.assertNotIn("showcqt", graph)
+            self.assertEqual(progress, [(30, 30)])
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class RenderTest(unittest.TestCase):
     def test_rates_codecs_styles_and_metadata(self):
@@ -159,7 +178,7 @@ class RenderTest(unittest.TestCase):
                 path = Path(directory) / f"audio{volume}.f32"
                 path.write_bytes(samples.tobytes())
                 inputs = ["-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", str(path)]
-                for style in R.STYLES:
+                for style in ("bars", "dots"):
                     with self.subTest(volume=volume, style=style):
                         full = R.full_scale(inputs, style, 640, 12, fps, 2 * fps)
                         peak = lambda gain: R._peak(inputs, style, 640, 12, fps, full * gain ** 1.5, 2 * fps, None)

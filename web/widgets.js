@@ -39,6 +39,7 @@ export function updateWidgets(node) {
   const value = (name) => node.widgets?.find((w) => w.name === name)?.value;
   let changed = false;
   for (const [name, visible] of [
+    ...["color", "band_height", "gain", "glow", "trail"].map(name => [name, !["(none)", "none"].includes(value("style"))]),
     ["dot_spacing", value("style") === "dots"],
     ["crf", false],
     ["h264_crf", value("video_codec") === "h264"],
@@ -101,6 +102,7 @@ app.registerExtension({
             }
             values.gain = defaults.get(this).gain;
           }
+          if (values.style === "none") values.style = "(none)";
           for (const widget of this.widgets) {
             if (Object.hasOwn(values, widget.name)) widget.value = values[widget.name];
           }

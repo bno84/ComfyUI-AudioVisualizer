@@ -129,3 +129,29 @@ test('workflows without vignette default to off; explicit strength survives save
     assert.equal(widget(copy, 'fps').value, 60);
   }
 });
+
+test('none hides spectrum controls and preserves settings across switching and reload', () => {
+  const node = new Node();
+  change(node, 'style', '(none)');
+  for (const name of ['color', 'band_height', 'gain', 'glow', 'trail', 'dot_spacing']) {
+    assert.equal(widget(node, name).hidden, true);
+  }
+  for (const name of ['vignette']) {
+    assert.ok(!widget(node, name).hidden);
+  }
+  const copy = new Node();
+  copy.configure(node.serialize());
+  assert.deepEqual(values(copy), values(node));
+  change(copy, 'style', 'bars');
+  assert.ok(!widget(copy, 'color').hidden);
+  assert.equal(widget(copy, 'gain').value, 1.3);
+});
+
+test('saved none style migrates to (none)', () => {
+  const node = new Node();
+  const order = Object.keys(initial);
+  node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order },
+    widgets_values: order.map(name => name === 'style' ? 'none' : initial[name]) });
+  assert.equal(widget(node, 'style').value, '(none)');
+  assert.equal(widget(node, 'gain').hidden, true);
+});
