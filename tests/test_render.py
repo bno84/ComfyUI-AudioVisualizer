@@ -94,7 +94,13 @@ class VignetteValidationTest(unittest.TestCase):
                 R.render(b"", 640, 144, b"", 48000, 1, "unused.mp4", vignette=strength)
 
 
-class NoneStyleTest(unittest.TestCase):
+class FadeValidationTest(unittest.TestCase):
+    def test_rejects_invalid_durations(self):
+        for name in ("fade_in", "fade_out"):
+            for value in (-0.1, 3.1, float("nan"), float("inf")):
+                with self.subTest(name=name, value=value), self.assertRaisesRegex(ValueError, name):
+                    R.render(b"", 640, 144, b"", 8000, 1, "unused.mp4", **{name: value})
+
     def test_none_skips_spectrum_analysis_and_band_constraints(self):
         with patch.object(R, "check_ffmpeg"), patch.object(R, "full_scale") as measure, \
                 patch.object(R, "_spectrum") as spectrum, patch.object(R.subprocess, "Popen") as popen:
@@ -104,17 +110,71 @@ class NoneStyleTest(unittest.TestCase):
             popen.return_value = process
             progress = []
             R.render(b"", 32, 16, bytes(8000 * 4), 8000, 1, "unused.mp4",
-                     style="(none)", fps=30,
+                     style="(none)", fps=30, fade_in=0, fade_out=0,
                      on_frame=lambda done, total: progress.append((done, total)))
             measure.assert_not_called()
             spectrum.assert_not_called()
             command = popen.call_args.args[0]
             graph = command[command.index("-filter_complex") + 1]
+            self.assertNotIn("fade=", graph)
             self.assertNotIn("showcqt", graph)
             self.assertEqual(progress, [(30, 30)])
 
+    def test_fades_apply_to_every_style_and_keyframe_follows_fade_in(self):
+        for style in R.STYLES:
+            with self.subTest(style=style), patch.object(R, "check_ffmpeg"), \
+                    patch.object(R, "full_scale", return_value=1), patch.object(R.subprocess, "Popen") as popen:
+                process = MagicMock()
+                process.stdout.__iter__.return_value = iter([])
+                process.wait.return_value = 0
+                popen.return_value = process
+                R.render(b"", 640, 144, bytes(5 * 8000 * 4), 8000, 1, "unused.mp4",
+                         style=style, fps=30, fade_in=3, fade_out=1)
+                command = popen.call_args.args[0]
+                graph = command[command.index("-filter_complex") + 1]
+                self.assertIn("fade=in:st=0:d=3,", graph)
+                self.assertIn("fade=out:st=4:d=1,", graph)
+                self.assertAlmostEqual(float(command[command.index("-force_key_frames") + 1]), 3 + 1/30)
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class RenderTest(unittest.TestCase):
+    def test_none_and_fade_pixels_with_audio_preserved(self):
+        rate, width, height, fps = 8000, 64, 48, 30
+        samples = array.array("f", (0.2 * math.sin(2 * math.pi * 440 * i / rate)
+                                    for i in range(2 * rate)))
+        with tempfile.TemporaryDirectory() as directory:
+            for fade_in, fade_out in ((0, 0), (0.5, 0), (0, 0.5), (0.5, 0.5), (3, 3)):
+                with self.subTest(fade_in=fade_in, fade_out=fade_out):
+                    output = str(Path(directory) / "still.mp4")
+                    with patch.object(R, "full_scale", side_effect=AssertionError("none measured audio")):
+                        R.render(bytes([180, 180, 180]) * width * height, width, height,
+                                 samples.tobytes(), rate, 1, output, style="(none)",
+                                 fps=fps, codec="h264", crf=0, fade_in=fade_in, fade_out=fade_out)
+                    raw = subprocess.check_output([
+                        "ffmpeg", "-v", "error", "-i", output, "-map", "0:v",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
+                    size = width * height * 3
+                    self.assertEqual(len(raw), size * 2 * fps)
+                    brightness = lambda n: sum(raw[n * size:(n + 1) * size]) / size
+                    if fade_in:
+                        self.assertLess(brightness(0), 3)
+                    else:
+                        self.assertAlmostEqual(brightness(0), 180, delta=3)
+                    if fade_out:
+                        self.assertLess(brightness(59), 20)
+                    else:
+                        self.assertAlmostEqual(brightness(59), 180, delta=3)
+                    if max(fade_in, fade_out) < 2:
+                        self.assertAlmostEqual(brightness(30), 180, delta=3)
+                    decoded = subprocess.check_output([
+                        "ffmpeg", "-v", "error", "-i", output, "-map", "0:a",
+                        "-f", "f32le", "pipe:1"])
+                    recovered = array.array("f")
+                    recovered.frombytes(decoded)
+                    self.assertEqual(len(recovered), len(samples))
+                    self.assertLess(max(abs(a - b) for a, b in zip(samples, recovered)), 1e-6)
+
     def test_rates_codecs_styles_and_metadata(self):
         rate = 48000
         samples = array.array("f", (0.2 * math.sin(2 * math.pi * 440 * i / rate) for i in range(rate)))

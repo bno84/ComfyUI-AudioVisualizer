@@ -41,6 +41,10 @@ returns a `VIDEO`, with the workflow embedded in the file.
   and a mock spectrum peaking at the chosen gain, to check placement before
   rendering. The spectrum shape is made up; only the real render uses the
   audio.
+- **Fades:** visual fade-in and fade-out from/to black, each 0–3 seconds.
+  Zero disables the fade. Defaults are 1.5 seconds in and 2.5 seconds out,
+  including for older workflows. Fades are capped at the rendered duration
+  for short clips and can overlap. Audio is unchanged.
 - **Timing:** 30/60 FPS, start, and duration in seconds. Duration 0 uses the
   rest of the audio.
 - **Codecs:** H.265 (CRF 18) or H.264 (CRF 22); FLAC (default), AAC

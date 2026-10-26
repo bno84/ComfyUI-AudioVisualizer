@@ -21,6 +21,8 @@ MEASURE_H = 512              # rows for measuring the loudest bar height
 MARGIN = 6                   # gap between bars
 BOTTOM_MARGIN = 3
 STYLES = ("(none)", "bars", "dots")
+DEFAULT_FADE_IN = 1.5
+DEFAULT_FADE_OUT = 2.5
 CODECS = ("h265", "h264")
 AUDIO_CODECS = ("flac", "opus", "aac")
 DEFAULT_CRF = {"h265": 18, "h264": 22}
@@ -146,13 +148,15 @@ def full_scale(inputs, style, width, dot, fps, frames, on_frame=None):
 def render(pixels, width, height, samples, sample_rate, channels, output, *, style="bars", color="#9750c4",
            dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=128,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
-           band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE):
+           band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE,
+           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT):
     """Render `output` (mp4). `pixels` are rgb24 bytes; `samples` are interleaved float32 little-endian bytes.
 
     band_height is the band's share of the video height, 0.1 to 0.9. gain scales the band so that 1.0
     makes the loudest moment just reach its top; the audio is measured first.
     vignette controls edge darkening from 0 (disabled) to 1 (strongest); default 0 disables it; 0.4 reproduces the original PI/5.
     duration 0 = to the end of the audio. crf >= 0 overrides the codec-specific CRF for legacy API prompts.
+    fade_in and fade_out are visual fades to/from black in seconds, 0 to 3; 0 disables each fade.
     style (none) keeps only the still and audio, without spectrum analysis.
     Returns the number of frames written.
     """
@@ -185,6 +189,9 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
             raise ValueError(f"gain {gain}: use {GAIN_RANGE[0]} to {GAIN_RANGE[1]}, 1.0 reaching the top of the band")
     if not 0.0 <= vignette <= 1.0:
         raise ValueError(f"vignette {vignette}: use 0.0 to 1.0; 0 disables it")
+    for name, value in (("fade_in", fade_in), ("fade_out", fade_out)):
+        if not 0.0 <= value <= 3.0:
+            raise ValueError(f"{name} {value}: use 0.0 to 3.0 seconds; 0 disables it")
     check_ffmpeg(codec, audio_codec)
 
     total = len(samples) / (4 * channels * sample_rate)
@@ -192,7 +199,13 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
         raise ValueError(f"start {start}s is past the end of the audio ({total:.2f}s)")
     dur = total - start if duration <= 0 else min(duration, total - start)
     frames = int(dur * fps)
-    fade_out = max(0.0, dur - 2.5)
+    fade_in = min(fade_in, dur)
+    fade_out = min(fade_out, dur)
+    fades = ""
+    if fade_in > 0:
+        fades += f"fade=in:st=0:d={fade_in:.12g},"
+    if fade_out > 0:
+        fades += f"fade=out:st={max(0.0, dur - fade_out):.12g}:d={fade_out:.12g},"
 
     H, Y = band_h, height - band_h - BOTTOM_MARGIN
 
@@ -214,7 +227,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     def graph(level):
         scene = (f"[0:v]format=rgb24,{vignette_filter}"
                  f"loop=loop=-1:size=1,setpts=N/({fps}*TB)")
-        finish = f"fade=in:st=0:d=1.5,fade=out:st={fade_out:.2f}:d=2.5,fps={fps},format=yuv420p[v]"
+        finish = f"{fades}fps={fps},format=yuv420p[v]"
         if style == "(none)":
             return f"{scene},{finish}"
         X, W, bands, grid, _ = _spectrum(style, width, H, dot, fps, level)
@@ -260,13 +273,13 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
                  if style != "(none)" else 1.0)
         filters = graph(level)
         cmd = ["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-y", "-nostats", "-progress", "pipe:1",
-               "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-i", image_path, *audio_input]
+               "-f", "rawvideo", "-framerate", str(fps), "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-i", image_path, *audio_input]
         meta_args = ["-map_metadata", "-1"]
         if metadata:
             cmd += ["-i", _metadata_file(tmp, metadata)]
             meta_args = ["-map_metadata", "2"]
         cmd += ["-filter_complex", filters, "-map", "[v]", "-map", "1:a", "-frames:v", str(frames),
-                *venc, "-g", str(fps * 10), "-force_key_frames", "1.6", "-pix_fmt", "yuv420p",
+                *venc, "-g", str(fps * 10), "-force_key_frames", f"{fade_in + 1 / fps:.12g}", "-pix_fmt", "yuv420p",
                 # forced keyframe right after the fade-in; otherwise the still is built from degraded fade
                 # frames until 10s
                 *aenc, *meta_args, "-shortest", "-movflags", "+faststart+use_metadata_tags", output]

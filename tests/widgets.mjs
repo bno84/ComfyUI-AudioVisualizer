@@ -11,7 +11,7 @@ delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
   enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', dot_spacing: 17,
-  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fps: 60, start: 0, duration: 0,
+  color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fade_in: 1.5, fade_out: 2.5, fps: 60, start: 0, duration: 0,
   video_codec: 'h265', h265_crf: 18, h264_crf: 22, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 128, crf: -1,
 };
@@ -42,7 +42,7 @@ const change = (node, name, value) => {
 test('three unlabeled groups, with dot spacing and codec controls beside their selector', () => {
   const node = new Node();
   assert.deepEqual(node.widgets.filter(w => !w.hidden).map(w => w.name), [
-    'enabled', 'filename_prefix', 'style', 'color', 'band_height', 'gain', 'glow', 'trail', 'vignette',
+    'enabled', 'filename_prefix', 'style', 'color', 'band_height', 'gain', 'glow', 'trail', 'vignette', 'fade_in', 'fade_out',
     '__separator_fps', 'fps', 'start', 'duration', '__separator_video_codec',
     'video_codec', 'h265_crf', 'audio_codec',
   ]);
@@ -133,10 +133,12 @@ test('workflows without vignette default to off; explicit strength survives save
 test('none hides spectrum controls and preserves settings across switching and reload', () => {
   const node = new Node();
   change(node, 'style', '(none)');
+  change(node, 'fade_in', 0);
+  change(node, 'fade_out', 3);
   for (const name of ['color', 'band_height', 'gain', 'glow', 'trail', 'dot_spacing']) {
     assert.equal(widget(node, name).hidden, true);
   }
-  for (const name of ['vignette']) {
+  for (const name of ['vignette', 'fade_in', 'fade_out']) {
     assert.ok(!widget(node, name).hidden);
   }
   const copy = new Node();
@@ -145,6 +147,17 @@ test('none hides spectrum controls and preserves settings across switching and r
   change(copy, 'style', 'bars');
   assert.ok(!widget(copy, 'color').hidden);
   assert.equal(widget(copy, 'gain').value, 1.3);
+  assert.equal(widget(copy, 'fade_in').value, 0);
+});
+
+test('workflows without fade controls retain the original fade durations', () => {
+  const node = new Node();
+  const order = Object.keys(initial).filter(name => !name.startsWith('fade_'));
+  node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order },
+    widgets_values: order.map(name => initial[name]) });
+  assert.equal(widget(node, 'fade_in').value, 1.5);
+  assert.equal(widget(node, 'fade_out').value, 2.5);
+  assert.deepEqual(values(node), initial);
 });
 
 test('saved none style migrates to (none)', () => {
