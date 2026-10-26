@@ -23,7 +23,9 @@ environment that runs ComfyUI. Standard PyAV wheels include FFmpeg libraries
 for Windows, macOS and Linux; system or custom builds may have different
 features. The node checks only the selected style and codecs, and names
 missing filters/encoders in its error. Installing an `ffmpeg` executable
-does not add features to PyAV's libraries.
+does not add features to PyAV's libraries. With conda or another managed
+environment, use its package manager to manage PyAV/FFmpeg rather than
+overlaying a pip installation; codec availability depends on that build.
 
 ## Use
 
@@ -64,7 +66,8 @@ Quiet audio can need multiple measurement passes; (none) skips analysis.
 Rendering feeds bounded audio chunks and frames directly to the encoders,
 without temporary raw image/audio files or a full-song image batch. The MP4
 is published only after encoding closes successfully; cancellation removes
-the temporary output.
+the temporary output. A hard process kill can leave a `.audio-viz-*.mp4`
+file in the output folder; it can be deleted after that process has stopped.
 
 Codec choices, defaults, saved controls and the VIDEO output remain the same.
 The FFmpeg libraries in a different PyAV version can produce slightly different

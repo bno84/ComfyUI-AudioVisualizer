@@ -1,6 +1,8 @@
 """Real library-filter and codec tests: no FFmpeg/FFprobe executable is required."""
 import importlib.util
 import math
+import os
+import stat
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,10 +25,12 @@ def tone(seconds=1, rate=48000, channels=1):
 def audio_samples(path):
     with av.open(str(path)) as source:
         stream = source.streams.audio[0]
-        resampler = av.AudioResampler(format="fltp", layout=stream.layout.name, rate=stream.sample_rate)
-        chunks = [p.to_ndarray() for frame in source.decode(audio=0) for p in resampler.resample(frame)]
-        chunks += [p.to_ndarray() for p in resampler.resample(None)]
-        return np.concatenate(chunks, axis=1).T
+        channels = len(stream.layout.channels)
+        resampler = av.AudioResampler(format="flt", layout=stream.layout.name, rate=stream.sample_rate)
+        chunks = [p.to_ndarray().reshape(-1, channels)
+                  for frame in source.decode(audio=0) for p in resampler.resample(frame)]
+        chunks += [p.to_ndarray().reshape(-1, channels) for p in resampler.resample(None)]
+        return np.concatenate(chunks, axis=0)
 
 
 class DependencyTest(unittest.TestCase):
@@ -252,6 +256,29 @@ class RenderTest(unittest.TestCase):
                 self.render(style="(none)")
         self.assertEqual(path.read_bytes(), b"existing")
         self.assertFalse(list(self.directory.glob(".audio-viz-*")))
+
+    @unittest.skipIf(os.name == "nt", "POSIX umask semantics")
+    def test_output_permissions_follow_umask(self):
+        previous = os.umask(0o027)
+        try:
+            path, _ = self.render(width=16, height=16, style="(none)", data=tone(.1))
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
+        finally:
+            os.umask(previous)
+
+    def test_eight_channel_audio_in_all_styles_and_codecs(self):
+        data = tone(.2, channels=8)
+        for style in R.STYLES:
+            for codec in R.AUDIO_CODECS:
+                with self.subTest(style=style, audio_codec=codec):
+                    path, count = self.render(data=data, style=style, audio_codec=codec,
+                                              fade_in=0, fade_out=0)
+                    self.assertEqual(count, 6)
+                    with av.open(str(path)) as source:
+                        self.assertEqual(source.streams.audio[0].layout.name, "7.1")
+                        self.assertTrue(list(source.decode(audio=0)))
+                    if codec == "flac":
+                        np.testing.assert_allclose(audio_samples(path), data, atol=1.2e-7)
 
     def test_measurement_cancellation_does_not_create_an_output(self):
         def interrupt(n, total):

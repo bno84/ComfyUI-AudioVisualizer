@@ -2,7 +2,6 @@
 import math
 import os
 import re
-import tempfile
 from fractions import Fraction
 
 import av
@@ -56,9 +55,10 @@ def check_features(codec, audio_codec, style, vignette=0, fade_in=0, fade_out=0)
         missing.append("filters: " + ", ".join(sorted(filters)))
     if missing:
         raise RuntimeError("Audio Visualizer's PyAV build is missing " + "; ".join(missing)
-                           + ". Install the pack requirements in ComfyUI's Python environment "
-                           "using a standard PyAV wheel, or choose an available style/codec. "
-                           "Installing an ffmpeg executable does not change PyAV's libraries.")
+                           + ". Choose an available style/codec, or use a PyAV/FFmpeg build "
+                           "with these features in ComfyUI's Python environment. "
+                           "Manage PyAV with the package manager used by that environment; "
+                           "installing an ffmpeg executable does not change PyAV's libraries.")
 
 
 def _chain(graph, source, *filters):
@@ -70,7 +70,7 @@ def _chain(graph, source, *filters):
 
 
 class _Audio:
-    """A view over the input bytes. Only the current chunk is copied to planar floats."""
+    """A view over the input bytes, fed in bounded packed-float chunks."""
     def __init__(self, samples, rate, channels, start=0, duration=0):
         self.rate = rate
         self.layout = av.AudioLayout(f"{channels}c").name
@@ -83,13 +83,15 @@ class _Audio:
         return len(self.data)
 
     def frame(self, position):
-        chunk = np.ascontiguousarray(self.data[position:position + CHUNK_SAMPLES].T, dtype=np.float32)
-        frame = av.AudioFrame.from_ndarray(chunk, format="fltp", layout=self.layout)
+        # Packed floats avoid a transpose and PyAV's eight-channel planar-array limitation.
+        chunk = np.ascontiguousarray(self.data[position:position + CHUNK_SAMPLES].reshape(1, -1),
+                                     dtype=np.float32)
+        frame = av.AudioFrame.from_ndarray(chunk, format="flt", layout=self.layout)
         frame.sample_rate, frame.time_base, frame.pts = self.rate, Fraction(1, self.rate), position
         return frame
 
     def source(self, graph):
-        return graph.add_abuffer(sample_rate=self.rate, format="fltp", layout=self.layout,
+        return graph.add_abuffer(sample_rate=self.rate, format="flt", layout=self.layout,
                                  time_base=Fraction(1, self.rate))
 
 
@@ -154,7 +156,6 @@ def _spectrum(style, width, band_h, dot, fps, level, rows=None):
     return X, W, bands, grid, columns
 
 
-
 def _peak(audio, style, width, dot, fps, level, frames, on_frame):
     """Measure maximum mask height through the same filters used for rendering."""
     graph = av.filter.Graph()
@@ -180,17 +181,22 @@ def _peak(audio, style, width, dot, fps, level, frames, on_frame):
 
 
 def full_scale(audio, style, width, dot, fps, frames, on_frame=None):
-    """Keep the original measured-gain algorithm and silence fallback."""
+    """The level at which the loudest moment exactly reaches the top of the band.
+
+    Bar heights grow with the level to the power 2/3 (showcqt's cube-root bars,
+    followed by area scaling and thresholding), so one reading below the top
+    suffices. Very quiet or clipped readings need a better measurement level.
+    """
     level = 4.0
     for _ in range(8):
         peak = _peak(audio, style, width, dot, fps, level, frames, on_frame)
         if peak >= 1.0:
-            level /= 8
+            level /= 8  # the peak drops to a quarter
         elif peak < 0.2:
             level *= 64 if peak == 0 else (0.6 / peak) ** 1.5
         else:
             return level * peak ** -1.5
-    return 1.0
+    return 1.0  # silence: nothing to scale
 
 
 def _composition(pixels, width, height, audio, style, band_h, dot, fps, level, color,
@@ -275,7 +281,12 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
            fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT):
     """Render MP4 using CPU library filters. Inputs remain rgb24 and interleaved f32le bytes.
 
-    Duration zero means the remainder of the audio. Fades affect video only.
+    band_height is the band's fraction of image height (0.1 to 0.9). gain 1.0
+    makes the measured loudest moment reach the top of the band; (none) skips it.
+    vignette controls edge darkening from 0 (disabled) to 1; 0.4 reproduces PI/5.
+    crf >= 0 overrides the selected codec's CRF for legacy API prompts.
+    Duration zero means the remainder of the audio. Fades affect video only,
+    each lasting 0 to 3 seconds; zero disables the corresponding fade.
     Progress/cancellation callbacks run during measurement and encoding. Return the frame count.
     """
     style = "(none)" if style == "none" else style
@@ -345,16 +356,18 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
 
     if on_frame:
         on_frame(0, total)
+    # Height grows as level ** (2/3), so gain g needs g ** 1.5 times full scale.
     level = (full_scale(audio, style, width, dot, fps, frames, measuring) * gain ** 1.5
              if style != "(none)" else 1.0)
     graph, sink, source = _composition(pixels, width, height, audio, style, band_h, dot, fps, level,
                                         color, glow, trail, vignette, fade_in, fade_out)
-    # Close the temporary output fd before PyAV opens it: Windows disallows a second
-    # open while a NamedTemporaryFile is held. Publish only a fully closed MP4.
+    # Reserve a random sibling with normal output permissions, respecting the umask.
+    # mkstemp's owner-only mode would survive os.replace and break shared outputs.
+    # Close the fd before PyAV opens it, including on Windows.
     output = os.fspath(output)
-    fd, temporary = tempfile.mkstemp(prefix=".audio-viz-", suffix=".mp4",
-                                     dir=os.path.dirname(os.path.abspath(output)))
-    os.close(fd)
+    temporary = os.path.join(os.path.dirname(os.path.abspath(output)),
+                             f".audio-viz-{os.urandom(16).hex()}.mp4")
+    os.close(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666))
     try:
         with av.open(temporary, "w", format="mp4", options={"movflags": "+faststart+use_metadata_tags"}) as container:
             container.metadata.update(metadata or {})
