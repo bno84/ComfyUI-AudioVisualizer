@@ -1,275 +1,279 @@
-"""Exercise the actual ffmpeg output, without importing ComfyUI or using the GPU."""
-import array
+"""Real library-filter and codec tests: no FFmpeg/FFprobe executable is required."""
 import importlib.util
-import json
 import math
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-PATH = Path(__file__).resolve().parents[1] / "render.py"
-spec = importlib.util.spec_from_file_location("audio_visualizer_render", PATH)
+import av
+import numpy as np
+
+spec = importlib.util.spec_from_file_location("visualizer_render", Path(__file__).resolve().parents[1] / "render.py")
 R = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(R)
 
 
+def tone(seconds=1, rate=48000, channels=1):
+    t = np.arange(round(seconds * rate)) / rate
+    return np.stack([.2 * np.sin(2 * math.pi * (110 + 440*c) * t) for c in range(channels)], axis=1).astype("<f4")
+
+
+def audio_samples(path):
+    with av.open(str(path)) as source:
+        stream = source.streams.audio[0]
+        resampler = av.AudioResampler(format="fltp", layout=stream.layout.name, rate=stream.sample_rate)
+        chunks = [p.to_ndarray() for frame in source.decode(audio=0) for p in resampler.resample(frame)]
+        chunks += [p.to_ndarray() for p in resampler.resample(None)]
+        return np.concatenate(chunks, axis=1).T
+
+
 class DependencyTest(unittest.TestCase):
-    def tearDown(self):
-        R._ffmpeg_features.cache_clear()
-
-    def test_missing_executable_explains_installation(self):
-        R._ffmpeg_features.cache_clear()
-        with patch.object(R.shutil, "which", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "FFmpeg executable on PATH"):
-                R.check_ffmpeg("h264", "aac")
-
     def test_missing_selected_encoder_and_filter(self):
-        features = {"encoders": {"libx264", "aac"}, "filters": R.FILTERS - {"showcqt"}}
-        with patch.object(R, "_ffmpeg_features", side_effect=features.__getitem__):
+        real = av.Codec
+        def codec(name, mode):
+            if name == "libx265":
+                raise ValueError("unavailable")
+            return real(name, mode)
+        with patch.object(av, "Codec", side_effect=codec), \
+                patch.object(av.filter, "filters_available", av.filter.filters_available - {"showcqt"}):
             with self.assertRaisesRegex(RuntimeError, "encoders: libx265; filters: showcqt"):
-                R.check_ffmpeg("h265", "aac")
+                R.check_features("h265", "aac", "bars")
 
-    def test_unselected_encoders_are_not_required(self):
-        features = {"encoders": {"libx264", "aac"}, "filters": R.FILTERS}
-        with patch.object(R, "_ffmpeg_features", side_effect=features.__getitem__):
-            R.check_ffmpeg("h264", "aac")
-
-    def test_capability_query_failure_is_actionable(self):
-        R._ffmpeg_features.cache_clear()
-        with patch.object(R.shutil, "which", return_value="/ffmpeg"), \
-                patch.object(R.subprocess, "run", side_effect=subprocess.TimeoutExpired("ffmpeg", 15)):
-            with self.assertRaisesRegex(RuntimeError, "could not inspect FFmpeg"):
-                R.check_ffmpeg("h264", "aac")
-
-
-class BitrateTest(unittest.TestCase):
-    def test_codec_quality_and_legacy_override(self):
-        for options, expected in [
-            ({}, "18"),
-            ({"codec": "h264"}, "22"),
-            ({"codec": "h264", "h264_crf": 20, "h265_crf": 16}, "20"),
-            ({"codec": "h265", "h264_crf": 20, "h265_crf": 16}, "16"),
-            ({"codec": "h264", "crf": 0}, "0"),
-            ({"codec": "h265", "crf": 25}, "25"),
-        ]:
-            with self.subTest(options=options), patch.object(R, "check_ffmpeg"), \
-                    patch.object(R, "full_scale", return_value=1.0), patch.object(R.subprocess, "Popen") as popen:
-                process = MagicMock()
-                process.stdout.__iter__.return_value = iter([])
-                process.wait.return_value = 0
-                popen.return_value = process
-                R.render(b"", 640, 144, bytes(48000 * 4), 48000, 1, "unused.mp4", **options)
-                command = popen.call_args.args[0]
-                self.assertEqual(command[command.index("-crf") + 1], expected)
-
-    def test_defaults_and_independent_bitrates(self):
-        for options, encoder, bitrate in [
-            ({}, "flac", None),
-            ({"audio_codec": "aac"}, "aac", "192k"),
-            ({"audio_codec": "aac", "aac_bitrate": 256, "audio_bitrate": 64}, "aac", "256k"),
-            ({"audio_codec": "opus", "aac_bitrate": 256}, "libopus", "128k"),
-        ]:
-            with self.subTest(options=options), patch.object(R, "check_ffmpeg"), \
-                    patch.object(R, "full_scale", return_value=1.0), patch.object(R.subprocess, "Popen") as popen:
-                process = MagicMock()
-                process.stdout.__iter__.return_value = iter([])
-                process.wait.return_value = 0
-                popen.return_value = process
-                R.render(b"", 640, 144, bytes(48000 * 4), 48000, 1, "unused.mp4", **options)
-                command = popen.call_args.args[0]
-                self.assertEqual(command[command.index("-c:a") + 1], encoder)
-                if bitrate:
-                    self.assertEqual(command[command.index("-b:a") + 1], bitrate)
-                else:
-                    self.assertNotIn("-b:a", command)
+    def test_none_needs_only_scene_filters_and_selected_encoders(self):
+        real = av.Codec
+        def codec(name, mode):
+            self.assertIn(name, ("libx264", "aac"))
+            return real(name, mode)
+        with patch.object(av, "Codec", side_effect=codec), \
+                patch.object(av.filter, "filters_available", R.SCENE_FILTERS):
+            R.check_features("h264", "aac", "(none)")
+            with self.assertRaisesRegex(RuntimeError, "filters: fade"):
+                R.check_features("h264", "aac", "(none)", fade_in=1)
+            with self.assertRaisesRegex(RuntimeError, "filters: vignette"):
+                R.check_features("h264", "aac", "(none)", vignette=.2)
 
 
-class VignetteValidationTest(unittest.TestCase):
-    def test_rejects_invalid_strength(self):
-        for strength in (-0.1, 1.1, float("nan"), float("inf")):
-            with self.subTest(strength=strength), self.assertRaisesRegex(ValueError, "vignette"):
-                R.render(b"", 640, 144, b"", 48000, 1, "unused.mp4", vignette=strength)
-
-
-class FadeValidationTest(unittest.TestCase):
-    def test_rejects_invalid_durations(self):
-        for name in ("fade_in", "fade_out"):
-            for value in (-0.1, 3.1, float("nan"), float("inf")):
-                with self.subTest(name=name, value=value), self.assertRaisesRegex(ValueError, name):
-                    R.render(b"", 640, 144, b"", 8000, 1, "unused.mp4", **{name: value})
-
-    def test_none_skips_spectrum_analysis_and_band_constraints(self):
-        with patch.object(R, "check_ffmpeg"), patch.object(R, "full_scale") as measure, \
-                patch.object(R, "_spectrum") as spectrum, patch.object(R.subprocess, "Popen") as popen:
-            process = MagicMock()
-            process.stdout.__iter__.return_value = iter(["frame=30"])
-            process.wait.return_value = 0
-            popen.return_value = process
-            progress = []
-            R.render(b"", 32, 16, bytes(8000 * 4), 8000, 1, "unused.mp4",
-                     style="(none)", fps=30, fade_in=0, fade_out=0,
-                     on_frame=lambda done, total: progress.append((done, total)))
-            measure.assert_not_called()
-            spectrum.assert_not_called()
-            command = popen.call_args.args[0]
-            graph = command[command.index("-filter_complex") + 1]
-            self.assertNotIn("fade=", graph)
-            self.assertNotIn("showcqt", graph)
-            self.assertEqual(progress, [(30, 30)])
-
-    def test_fades_apply_to_every_style_and_keyframe_follows_fade_in(self):
-        for style in R.STYLES:
-            with self.subTest(style=style), patch.object(R, "check_ffmpeg"), \
-                    patch.object(R, "full_scale", return_value=1), patch.object(R.subprocess, "Popen") as popen:
-                process = MagicMock()
-                process.stdout.__iter__.return_value = iter([])
-                process.wait.return_value = 0
-                popen.return_value = process
-                R.render(b"", 640, 144, bytes(5 * 8000 * 4), 8000, 1, "unused.mp4",
-                         style=style, fps=30, fade_in=3, fade_out=1)
-                command = popen.call_args.args[0]
-                graph = command[command.index("-filter_complex") + 1]
-                self.assertIn("fade=in:st=0:d=3,", graph)
-                self.assertIn("fade=out:st=4:d=1,", graph)
-                self.assertAlmostEqual(float(command[command.index("-force_key_frames") + 1]), 3 + 1/30)
-
-
-@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class RenderTest(unittest.TestCase):
-    def test_none_and_fade_pixels_with_audio_preserved(self):
-        rate, width, height, fps = 8000, 64, 48, 30
-        samples = array.array("f", (0.2 * math.sin(2 * math.pi * 440 * i / rate)
-                                    for i in range(2 * rate)))
-        with tempfile.TemporaryDirectory() as directory:
-            for fade_in, fade_out in ((0, 0), (0.5, 0), (0, 0.5), (0.5, 0.5), (3, 3)):
-                with self.subTest(fade_in=fade_in, fade_out=fade_out):
-                    output = str(Path(directory) / "still.mp4")
-                    with patch.object(R, "full_scale", side_effect=AssertionError("none measured audio")):
-                        R.render(bytes([180, 180, 180]) * width * height, width, height,
-                                 samples.tobytes(), rate, 1, output, style="(none)",
-                                 fps=fps, codec="h264", crf=0, fade_in=fade_in, fade_out=fade_out)
-                    raw = subprocess.check_output([
-                        "ffmpeg", "-v", "error", "-i", output, "-map", "0:v",
-                        "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
-                    size = width * height * 3
-                    self.assertEqual(len(raw), size * 2 * fps)
-                    brightness = lambda n: sum(raw[n * size:(n + 1) * size]) / size
-                    if fade_in:
-                        self.assertLess(brightness(0), 3)
-                    else:
-                        self.assertAlmostEqual(brightness(0), 180, delta=3)
-                    if fade_out:
-                        self.assertLess(brightness(59), 20)
-                    else:
-                        self.assertAlmostEqual(brightness(59), 180, delta=3)
-                    if max(fade_in, fade_out) < 2:
-                        self.assertAlmostEqual(brightness(30), 180, delta=3)
-                    decoded = subprocess.check_output([
-                        "ffmpeg", "-v", "error", "-i", output, "-map", "0:a",
-                        "-f", "f32le", "pipe:1"])
-                    recovered = array.array("f")
-                    recovered.frombytes(decoded)
-                    self.assertEqual(len(recovered), len(samples))
-                    self.assertLess(max(abs(a - b) for a, b in zip(samples, recovered)), 1e-6)
+    def setUp(self):
+        # A regression to subprocess rendering fails, even when FFmpeg happens to be installed.
+        self.process_guard = patch.object(subprocess, "Popen", side_effect=AssertionError("external process"))
+        self.process_guard.start()
+        self.addCleanup(self.process_guard.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.directory = Path(self.tmp.name)
 
-    def test_rates_codecs_styles_and_metadata(self):
-        rate = 48000
-        samples = array.array("f", (0.2 * math.sin(2 * math.pi * 440 * i / rate) for i in range(rate)))
-        with tempfile.TemporaryDirectory() as directory:
-            for fps in (30, 60):
-                for audio_codec in R.AUDIO_CODECS:
-                    with self.subTest(fps=fps, audio_codec=audio_codec):
-                        output = str(Path(directory) / "viz.mp4")
+    def render(self, filename="video.mp4", width=640, height=144, data=None, rate=48000, **opts):
+        data = tone() if data is None else data
+        path = self.directory / filename
+        written = R.render(bytes([180, 180, 180]) * width * height, width, height,
+                           data.tobytes(), rate, data.shape[1], path,
+                           **{"codec": "h264", "fps": 30, **opts})
+        return path, written
+
+    def test_styles_rates_codecs_metadata_and_progress(self):
+        for style in R.STYLES:
+            for fps in R.FRAME_RATES:
+                for codec in R.AUDIO_CODECS:
+                    with self.subTest(style=style, fps=fps, codec=codec):
                         progress = []
-                        R.render(bytes([100, 80, 60]) * (640 * 144), 640, 144,
-                                 samples.tobytes(), rate, 1, output,
-                                 fps=fps, codec="h264" if fps == 30 else "h265",
-                                 style="bars" if fps == 30 else "dots", audio_codec=audio_codec,
-                                 metadata={"workflow": '{"test":true}'},
-                                 on_frame=lambda written, total: progress.append((written, total)))
-                        data = json.loads(subprocess.check_output([
-                            "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", output]))
-                        video, audio = data["streams"]
-                        self.assertEqual(video["r_frame_rate"], f"{fps}/1")
-                        self.assertEqual(int(video["nb_frames"]), fps)
-                        self.assertEqual(video["codec_name"], "h264" if fps == 30 else "hevc")
-                        self.assertEqual(audio["codec_name"], audio_codec)
-                        self.assertEqual(data["format"]["tags"]["workflow"], '{"test":true}')
-                        # One bar that measures first, then encodes; it never moves back and ends full.
-                        values = [written for written, _ in progress]
-                        self.assertEqual(values, sorted(values))
+                        path, count = self.render(style=style, fps=fps, audio_codec=codec,
+                                                  codec="h264" if fps == 30 else "h265",
+                                                  metadata={"workflow": '{"test":true}'},
+                                                  on_frame=lambda n, total: progress.append((n, total)))
+                        self.assertEqual(count, fps)
+                        with av.open(str(path)) as source:
+                            v, a = source.streams.video[0], source.streams.audio[0]
+                            self.assertEqual(v.average_rate, fps)
+                            self.assertEqual(v.codec_context.name, "h264" if fps == 30 else "hevc")
+                            self.assertEqual(a.codec_context.name, codec)
+                            self.assertEqual(source.metadata["workflow"], '{"test":true}')
+                            frames = list(source.decode(video=0))
+                            self.assertEqual(len(frames), fps)
+                            for n, frame in enumerate(frames):
+                                self.assertAlmostEqual(float(frame.time), n / fps)
                         self.assertEqual(progress[-1][0], progress[-1][1])
-                        self.assertGreater(progress[-1][1], fps)
+                        self.assertEqual([p[0] for p in progress], sorted(p[0] for p in progress))
+                        self.assertEqual(progress[-1][1] > fps, style != "(none)")
 
-    def test_vignette_strength_changes_edge_darkening_and_zero_preserves_the_still(self):
-        rate, width, height = 8000, 640, 144
-        samples = bytes(5 * rate * 4)  # silence: spectrum cannot affect pixel checks
+    def test_fades_and_unmodified_audio(self):
+        data = tone(2, rate=8000)
+        for fade_in, fade_out in ((0, 0), (.5, 0), (0, .5), (.5, .5), (3, 3)):
+            with self.subTest(fade_in=fade_in, fade_out=fade_out):
+                path, _ = self.render(width=64, height=48, rate=8000, data=data,
+                                      style="(none)", crf=0, fade_in=fade_in, fade_out=fade_out)
+                with av.open(str(path)) as source:
+                    levels = [float(frame.to_ndarray(format="rgb24").mean()) for frame in source.decode(video=0)]
+                self.assertEqual(len(levels), 60)
+                self.assertAlmostEqual(levels[0], 0 if fade_in else 180, delta=3)
+                if fade_out:
+                    self.assertLess(levels[-1], 20)
+                else:
+                    self.assertAlmostEqual(levels[-1], 180, delta=3)
+                if max(fade_in, fade_out) < 2:
+                    self.assertAlmostEqual(levels[30], 180, delta=3)
+                np.testing.assert_allclose(audio_samples(path), data, atol=1.2e-7)
+
+    def test_trim_stereo_and_noninteger_duration(self):
+        rate = 44100
+        data = tone(2, rate, 2)
+        start, duration = .137, .713
+        path, frames = self.render(data=data, rate=rate, style="(none)", start=start, duration=duration)
+        expected = data[round(start*rate):round(start*rate)+round(duration*rate)]
+        self.assertEqual(frames, int(len(expected) / rate * 30))
+        np.testing.assert_allclose(audio_samples(path), expected, atol=1.2e-7)
+        with av.open(str(path)) as source:
+            stream = source.streams.audio[0]
+            self.assertAlmostEqual(float(stream.duration * stream.time_base), len(expected) / rate)
+
+    def test_opus_resamples_44100_stereo_and_preserves_duration(self):
+        path, _ = self.render(data=tone(1.013, 44100, 2), rate=44100, style="(none)", audio_codec="opus")
+        with av.open(str(path)) as source:
+            audio = source.streams.audio[0]
+            self.assertEqual(audio.sample_rate, 48000)
+            self.assertAlmostEqual(float(audio.duration * audio.time_base), 1.013, delta=1/48000)
+            self.assertTrue(list(source.decode(audio=0)))
+
+    def test_none_bypasses_spectrum_and_unused_controls(self):
+        for style in ("none", "(none)"):
+            with self.subTest(style=style), patch.object(R, "full_scale", side_effect=AssertionError()), \
+                    patch.object(R, "_spectrum", side_effect=AssertionError()), \
+                    patch.object(av.filter, "filters_available", R.SCENE_FILTERS):
+                path, frames = self.render(width=16, height=16, style=style, fade_in=0, fade_out=0,
+                                           color="unused", band_height=0, gain=99, dot=0)
+                self.assertTrue(path.exists())
+                self.assertEqual(frames, 30)
+
+    def test_vignette_darkens_edges_and_zero_preserves_the_still(self):
         corners = []
-        with tempfile.TemporaryDirectory() as directory:
-            for strength in (R.DEFAULT_VIGNETTE, 0.2, 0.4, 1):
-                output = str(Path(directory) / "vignette.mp4")
-                with patch.object(R, "full_scale", return_value=1.0):
-                    R.render(bytes([200, 200, 200]) * (width * height), width, height,
-                             samples, rate, 1, output, fps=30, codec="h264", crf=0, vignette=strength)
-                # At 2s both fades are inactive. Sample above the visualizer band.
-                frame = subprocess.check_output([
-                    "ffmpeg", "-v", "error", "-ss", "2", "-i", output, "-frames:v", "1",
-                    "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
-                offset = (8 * width + 8) * 3
-                corner = sum(frame[offset:offset + 3]) / 3
-                corners.append(corner)
-                if strength == 0:
-                    self.assertAlmostEqual(corner, 200, delta=3)
+        for strength in (0, .2, .4, 1):
+            path, _ = self.render(style="(none)", data=tone(1), crf=0, vignette=strength, fade_in=0, fade_out=0)
+            with av.open(str(path)) as source:
+                frame = next(source.decode(video=0)).to_ndarray(format="rgb24")
+            corners.append(float(frame[8, 8].mean()))
+        self.assertAlmostEqual(corners[0], 180, delta=3)
         self.assertTrue(all(a > b for a, b in zip(corners, corners[1:])), corners)
 
-    def test_gain_one_makes_the_loudest_moment_reach_the_top_at_any_volume(self):
+    def test_gain_one_reaches_the_band_top_at_any_volume(self):
         rate, fps = 48000, 30
-        with tempfile.TemporaryDirectory() as directory:
-            for volume in (0.05, 0.6):
-                # Bass and a swelling melody note: the loudest moment is late and narrow.
-                def sample(i):
-                    swell = i / (2 * rate)
-                    return volume * (0.5 * math.sin(2 * math.pi * 110 * i / rate)
-                                     + swell * math.sin(2 * math.pi * 660 * i / rate))
-                samples = array.array("f", map(sample, range(2 * rate)))
-                path = Path(directory) / f"audio{volume}.f32"
-                path.write_bytes(samples.tobytes())
-                inputs = ["-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", str(path)]
-                for style in ("bars", "dots"):
-                    with self.subTest(volume=volume, style=style):
-                        full = R.full_scale(inputs, style, 640, 12, fps, 2 * fps)
-                        peak = lambda gain: R._peak(inputs, style, 640, 12, fps, full * gain ** 1.5, 2 * fps, None)
-                        self.assertEqual(peak(1.0), 1.0)
-                        self.assertLess(peak(0.97), 1.0)
-                        self.assertGreater(peak(0.97), 0.95)
+        t = np.arange(2*rate) / rate
+        base = .5*np.sin(2*math.pi*110*t) + t/2*np.sin(2*math.pi*660*t)
+        for style in ("bars", "dots"):
+            for volume in (.0001, .05, .6):
+                with self.subTest(style=style, volume=volume):
+                    audio = R._Audio((volume*base).astype("<f4").tobytes(), rate, 1)
+                    full = R.full_scale(audio, style, 640, 12, fps, 2*fps)
+                    self.assertEqual(R._peak(audio, style, 640, 12, fps, full, 2*fps, None), 1)
+                    smaller = R._peak(audio, style, 640, 12, fps, full*.97**1.5, 2*fps, None)
+                    self.assertGreater(smaller, .95)
+                    self.assertLess(smaller, 1)
 
-    def test_band_height_is_a_share_of_the_video(self):
-        rate = 48000
-        samples = array.array("f", (0.2 * math.sin(2 * math.pi * 440 * i / rate) for i in range(rate)))
-        with tempfile.TemporaryDirectory() as directory:
-            output = str(Path(directory) / "viz.mp4")
-            R.render(bytes([100, 80, 60]) * (640 * 360), 640, 360, samples.tobytes(), rate, 1, output,
-                     fps=30, codec="h264", band_height=0.17, gain=1.15)   # 61.2px rounds to an even 62
-            frames = subprocess.check_output(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
-                                              "stream=nb_read_frames", "-of", "csv=p=0", output], text=True)
-            self.assertEqual(frames.split()[0], "30")
+    def test_silence_normalization_and_subsecond_clips(self):
+        audio = R._Audio(bytes(4800*4), 48000, 1)
+        for style in ("bars", "dots"):
+            self.assertEqual(R.full_scale(audio, style, 640, 12, 60, 6), 1)
+        for style in R.STYLES:
+            for fps, seconds in ((30, .05), (60, .02), (60, .1)):
+                with self.subTest(style=style, fps=fps, seconds=seconds):
+                    _, count = self.render(data=tone(seconds), style=style, fps=fps)
+                    self.assertEqual(count, int(seconds*fps))
 
-    def test_rejects_a_band_too_low_and_a_gain_without_height(self):
+    def test_band_height_glow_trail_and_color(self):
+        data = tone(3)
+        data[48000:] = 0
+        audio = R._Audio(data.tobytes(), 48000, 1)
+        def frames(style, glow=0, trail=0):
+            graph, sink, source = R._composition(bytes([180]*3)*640*360, 640, 360,
+                                                 audio, style, 62, 12, 30, 64, "#ff0000",
+                                                 glow, trail, 0, 0, 0)
+            feed = R._Feed(audio, source)
+            selected = {}
+            for n in range(90):
+                frame = feed.read(sink)
+                if n in (15, 89) or 33 <= n < 45:
+                    selected[n] = frame.to_ndarray(format="rgb24")
+            return selected
+        for style in ("bars", "dots"):
+            plain, glow, trail = frames(style), frames(style, glow=1), frames(style, trail=.8)
+            self.assertTrue(np.any(plain[15][-65:] != 180))
+            np.testing.assert_array_equal(plain[15][:-73], 180)
+            self.assertGreater(np.abs(plain[15].astype(int)-glow[15]).max(), 0)
+            self.assertGreater(max(np.abs(a.astype(int)-b).max() for a,b in ((plain[n], trail[n]) for n in range(33, 45))), 0)
+            np.testing.assert_array_equal(plain[89], trail[89])
+
+    def test_quality_controls_and_legacy_override(self):
+        for options, expected in [
+            ({}, 18), ({"codec": "h264"}, 22),
+            ({"codec": "h264", "h264_crf": 20, "h265_crf": 16}, 20),
+            ({"codec": "h265", "h264_crf": 20, "h265_crf": 16}, 16),
+            ({"codec": "h264", "crf": 0}, 0), ({"codec": "h265", "crf": 25}, 25),
+        ]:
+            with self.subTest(options=options), patch.object(R, "_streams", wraps=R._streams) as streams:
+                self.render(width=16, height=16, style="(none)", data=tone(.1), **{"codec": "h265", **options})
+                self.assertEqual(streams.call_args.args[5], expected)
+        for options, expected in [
+            ({"audio_codec": "aac"}, 192),
+            ({"audio_codec": "aac", "aac_bitrate": 256, "audio_bitrate": 64}, 256),
+            ({"audio_codec": "opus", "aac_bitrate": 256}, 128),
+        ]:
+            with self.subTest(options=options), patch.object(R, "_streams", wraps=R._streams) as streams:
+                self.render(width=16, height=16, style="(none)", data=tone(.1), **options)
+                self.assertEqual(streams.call_args.args[7], expected)
+
+    def test_large_metadata_unicode_filename_and_post_fade_keyframe(self):
+        metadata = {"workflow": '{"payload":"' + "x"*524288 + '"}', "prompt": "音楽 café\n#=;\\"}
+        for codec in R.CODECS:
+            path, _ = self.render(filename="音楽 café [test].mp4", codec=codec, style="(none)",
+                                  data=tone(2), fps=60, fade_in=.5, fade_out=0, metadata=metadata)
+            with av.open(str(path)) as source:
+                self.assertEqual(source.metadata["workflow"], metadata["workflow"])
+                self.assertEqual(source.metadata["prompt"], metadata["prompt"])
+                frames = list(source.decode(video=0))
+                self.assertTrue(frames[31].key_frame)
+                if codec == "h265":
+                    self.assertEqual(source.streams.video[0].codec_context.codec_tag, "hvc1")
+
+    def test_cleanup_on_cancel_and_encoder_failure_preserves_existing_output(self):
+        class Cancelled(BaseException):
+            pass
+        path = self.directory / "video.mp4"
+        path.write_bytes(b"existing")
+        def interrupt(n, total):
+            if n > 5:
+                raise Cancelled()
+        with self.assertRaises(Cancelled):
+            self.render(style="(none)", on_frame=interrupt)
+        self.assertEqual(path.read_bytes(), b"existing")
+        self.assertFalse(list(self.directory.glob(".audio-viz-*")))
+        with patch.object(R, "_streams", side_effect=RuntimeError("encoder failure")):
+            with self.assertRaisesRegex(RuntimeError, "encoder failure"):
+                self.render(style="(none)")
+        self.assertEqual(path.read_bytes(), b"existing")
+        self.assertFalse(list(self.directory.glob(".audio-viz-*")))
+
+    def test_measurement_cancellation_does_not_create_an_output(self):
+        def interrupt(n, total):
+            if n:
+                raise InterruptedError()
+        with self.assertRaises(InterruptedError):
+            self.render(on_frame=interrupt)
+        self.assertEqual(list(self.directory.iterdir()), [])
+
+    def test_invalid_inputs_fail_without_creating_an_output(self):
         for options, message in [
-            ({"band_height": 0.1}, "too low"),
-            ({"band_height": 0.16, "style": "dots", "dot": 40}, "too low"),
-            ({"band_height": 0.16, "gain": 12}, "0.25 to 2.0"),
-            ({"band_height": 16}, "0.1 to 0.9"),
+            ({"vignette": float("nan")}, "vignette"),
+            ({"fade_in": 3.1}, "fade_in"), ({"fade_out": float("inf")}, "fade_out"),
+            ({"band_height": .1}, "too low"), ({"band_height": .16, "style": "dots", "dot": 40}, "too low"),
+            ({"gain": 12}, "0.25 to 2.0"), ({"band_height": 16}, "0.1 to 0.9"),
+            ({"fps": 24}, "frame rate"), ({"start": -1}, "start"),
+            ({"duration": float("nan")}, "duration"), ({"start": 2}, "past the end"),
+            ({"duration": .001}, "shorter than one"), ({"crf": 52}, "CRF"),
         ]:
             with self.subTest(options=options), self.assertRaisesRegex(ValueError, message):
-                R.render(b"", 640, 144, bytes(4), 48000, 1, "unused.mp4", **{"gain": 1.15, **options})
-
-    def test_rejects_unsupported_rate(self):
-        with self.assertRaisesRegex(ValueError, "frame rate"):
-            R.render(b"", 640, 144, b"", 48000, 1, "unused.mp4", fps=24)
+                self.render(**options)
+        self.assertEqual(list(self.directory.iterdir()), [])
 
 
 if __name__ == "__main__":

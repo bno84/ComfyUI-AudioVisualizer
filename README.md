@@ -14,10 +14,16 @@ Insert your own image and use the mock preview to adjust the style.
   `ComfyUI/custom_nodes/`.
 
 Then restart ComfyUI and refresh the browser. Requires ComfyUI 0.38.0 or
-newer; no extra Python packages or GPU.
+newer. It uses PyAV (av>=17), already required by that ComfyUI version, and
+ComfyUI's NumPy. No GPU or separate FFmpeg executable is needed.
 
-FFmpeg must be on `PATH`, with `showcqt` and the selected encoders:
-`libx264` / `libx265` for video; `flac`, `aac`, or `libopus` for audio.
+Manager installations install the pack's Python requirements automatically.
+For a manual installation, install `requirements.txt` using the same Python
+environment that runs ComfyUI. Standard PyAV wheels include FFmpeg libraries
+for Windows, macOS and Linux; system or custom builds may have different
+features. The node checks only the selected style and codecs, and names
+missing filters/encoders in its error. Installing an `ffmpeg` executable
+does not add features to PyAV's libraries.
 
 ## Use
 
@@ -53,8 +59,17 @@ returns a `VIDEO`, with the workflow embedded in the file.
 The filename includes the style automatically, e.g.
 `video/song_visualizer_bars_00001_.mp4`. Disable `enabled` to skip rendering.
 
-In bars and dots modes, measuring takes one extra FFmpeg pass over the rendered span, a few percent of
-its length.
+Bars and dots measure the audio through library filters before rendering.
+Quiet audio can need multiple measurement passes; (none) skips analysis.
+Rendering feeds bounded audio chunks and frames directly to the encoders,
+without temporary raw image/audio files or a full-song image batch. The MP4
+is published only after encoding closes successfully; cancellation removes
+the temporary output.
+
+Codec choices, defaults, saved controls and the VIDEO output remain the same.
+The FFmpeg libraries in a different PyAV version can produce slightly different
+pixels. Opus in MP4 can expose encoder padding when decoded to raw samples,
+although the recorded audio duration is preserved.
 
 Workflows saved with 0.1 keep their settings, but gain resets to 1.3: it used
 to be a raw volume. API prompts from 0.1 need `band_height` and a gain between
@@ -63,8 +78,10 @@ to be a raw volume. API prompts from 0.1 need `band_height` and a gain between
 ## Tests
 
 ```sh
+python3 -m pip install -r requirements.txt numpy
 python3 -m unittest discover -s tests
 node --test tests/*.mjs
 ```
 
-Render tests need FFmpeg and FFprobe.
+Render tests use real PyAV filters and encoders and block subprocess rendering.
+CI runs them on Linux, Windows and macOS, including the minimum PyAV version.

@@ -74,7 +74,7 @@ class AudioVisualizer:
     FUNCTION = "run"
     CATEGORY = CATEGORY
     DESCRIPTION = ("🎵 Still image + audio → 30 or 60 fps mp4 with a constant-Q spectrum band along the bottom, "
-                   "rendered by ffmpeg in one pass. Saves to the output folder with the workflow embedded.")
+                   "rendered by PyAV using CPU FFmpeg filters. Saves to the output folder with the workflow embedded.")
 
     def check_lazy_status(self, enabled, image=None, audio=None, **_):
         return [name for name, value in (("image", image), ("audio", audio)) if enabled and value is None]

@@ -20,7 +20,7 @@ env:
 
 jobs:
   checks:
-    name: Metadata, security scan and unit tests
+    name: Metadata, security scan and frontend tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -47,12 +47,29 @@ jobs:
         # comfy-cli only warns about exec, eval and one-line multi-statements
         # for now and says these will become errors; fail on them already.
         run: ruff check . --select S102,S307,E702
-      - name: Install FFmpeg for real render tests
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Python unit tests
-        run: python -m unittest discover -s tests -v
       - name: Frontend unit tests
         run: node --test tests/*.mjs
+
+  render:
+    name: Render on ${{ matrix.os }} / Python ${{ matrix.runtime.python }} / av${{ matrix.runtime.av }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        runtime:
+          - {python: "3.10", av: "==17.0.0"}
+          - {python: "3.12", av: ">=17.0.0"}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.runtime.python }}
+      - name: Install prebuilt runtime dependencies
+        run: >-
+          python -m pip install --only-binary=:all: numpy "av${{ matrix.runtime.av }}"
+      - name: Real library filter and encoder tests
+        run: python -m unittest discover -s tests -v
 
   comfyui:
     name: Loads in ComfyUI (CPU)
@@ -69,6 +86,7 @@ jobs:
           git clone --depth 1 --branch "$COMFYUI_REF" https://github.com/Comfy-Org/ComfyUI.git comfyui
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install -r comfyui/requirements.txt
+          pip install -r pack/requirements.txt
           cp -r pack comfyui/custom_nodes/ComfyUI-AudioVisualizer
       - name: Start ComfyUI and check the pack
         run: >
@@ -81,7 +99,7 @@ jobs:
   publish:
     name: Publish to the Comfy Registry
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [checks, comfyui]
+    needs: [checks, render, comfyui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
