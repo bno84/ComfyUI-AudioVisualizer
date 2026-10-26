@@ -15,11 +15,16 @@ test('the band sits where render.py puts it', () => {
 });
 
 test('dots preview centers complete circles in the stretched mask cells', () => {
-  const arcs = [];
+  const arcs = [], gradients = [];
   const canvas = { width: 572, height: 778, getContext() { return {
     save() {}, restore() {}, clearRect() {}, drawImage() {}, translate() {}, scale() {},
     setLineDash() {}, strokeRect() {}, beginPath() {}, fill() {},
     arc(...args) { arcs.push(args); },
+    createRadialGradient(...args) {
+      const stops = [];
+      gradients.push({ args, stops });
+      return { addColorStop(...stop) { stops.push(stop); } };
+    },
   }; } };
   const node = { widgets: [
     { name: 'style', value: 'dots' }, { name: 'dot_spacing', value: 17 },
@@ -27,15 +32,20 @@ test('dots preview centers complete circles in the stretched mask cells', () => 
   ] };
   const { band } = draw(canvas, node, { naturalWidth: 572, naturalHeight: 778 });
   assert.ok(arcs.length > 0);
-  for (const [x, y, radius] of arcs) {
-    const column = Math.floor((x + .5) / band.cell);
-    const row = Math.floor((y + .5) / band.rowHeight);
-    assert.ok(Math.abs(x - ((column + .5) * band.cell - .5)) < 1e-10);
-    assert.ok(Math.abs(y - ((row + .5) * band.rowHeight - .5)) < 1e-10);
-    assert.ok(x - radius >= column * band.cell - .5);
-    assert.ok(x + radius <= (column + 1) * band.cell - .5);
-    assert.ok(y - radius >= row * band.rowHeight - .5);
-    assert.ok(y + radius <= (row + 1) * band.rowHeight - .5);
+  assert.equal(gradients.length, arcs.length);
+  for (const [i, [x, y, radius]] of arcs.entries()) {
+    const column = Math.floor(x / band.cell);
+    const row = Math.floor(y / band.rowHeight);
+    assert.ok(Math.abs(x - ((column + .5) * band.cell)) < 1e-10);
+    assert.ok(Math.abs(y - ((row + .5) * band.rowHeight)) < 1e-10);
+    assert.ok(x - radius >= column * band.cell);
+    assert.ok(x + radius <= (column + 1) * band.cell);
+    assert.ok(y - radius >= row * band.rowHeight);
+    assert.ok(y + radius <= (row + 1) * band.rowHeight);
+    assert.deepEqual(gradients[i], {
+      args: [x, y, radius - 1, x, y, radius],
+      stops: [[0, '#9750c4'], [1, 'transparent']],
+    });
   }
 });
 

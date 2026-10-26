@@ -133,8 +133,17 @@ function draw(canvas, node, still) {
     if (style === "dots") {
       const lit = Math.round(shown * band.rows);
       for (let row = 0; row < lit; row++) {
+        // geq uses pixel indices; Canvas uses pixel edges, so its centers
+        // are half a pixel further along. Fade inward over one source pixel
+        // to match render.py's clip(radius - distance, 0, 1) mask.
+        const x = (column + 0.5) * band.cell;
+        const y = band.h - (row + 0.5) * band.rowHeight;
+        const edge = g.createRadialGradient(x, y, Math.max(0, band.radius - 1), x, y, band.radius);
+        edge.addColorStop(0, color);
+        edge.addColorStop(1, "transparent");
+        g.fillStyle = edge;
         g.beginPath();
-        g.arc((column + 0.5) * band.cell - 0.5, band.h - (row + 0.5) * band.rowHeight - 0.5, band.radius, 0, 2 * Math.PI);
+        g.arc(x, y, band.radius, 0, 2 * Math.PI);
         g.fill();
       }
     } else {
