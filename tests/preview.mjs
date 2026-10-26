@@ -11,7 +11,32 @@ test('the band sits where render.py puts it', () => {
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.16, style: 'bars', dot: 12 }),
     { x: 6, y: 720 - 116 - 3, w: 1274, h: 116, columns: 64, rows: 0, cell: 1274 / 64 });
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.2, style: 'dots', dot: 12 }),
-    { x: 0, y: 720 - 144 - 3, w: 1280, h: 144, columns: 106, rows: 12, cell: 12 });
+    { x: 0, y: 720 - 144 - 3, w: 1280, h: 144, columns: 106, rows: 12, cell: 1280 / 106, rowHeight: 12, radius: 12 * 0.4 });
+});
+
+test('dots preview centers complete circles in the stretched mask cells', () => {
+  const arcs = [];
+  const canvas = { width: 572, height: 778, getContext() { return {
+    save() {}, restore() {}, clearRect() {}, drawImage() {}, translate() {}, scale() {},
+    setLineDash() {}, strokeRect() {}, beginPath() {}, fill() {},
+    arc(...args) { arcs.push(args); },
+  }; } };
+  const node = { widgets: [
+    { name: 'style', value: 'dots' }, { name: 'dot_spacing', value: 17 },
+    { name: 'band_height', value: .35 },
+  ] };
+  const { band } = draw(canvas, node, { naturalWidth: 572, naturalHeight: 778 });
+  assert.ok(arcs.length > 0);
+  for (const [x, y, radius] of arcs) {
+    const column = Math.floor((x + .5) / band.cell);
+    const row = Math.floor((y + .5) / band.rowHeight);
+    assert.ok(Math.abs(x - ((column + .5) * band.cell - .5)) < 1e-10);
+    assert.ok(Math.abs(y - ((row + .5) * band.rowHeight - .5)) < 1e-10);
+    assert.ok(x - radius >= column * band.cell - .5);
+    assert.ok(x + radius <= (column + 1) * band.cell - .5);
+    assert.ok(y - radius >= row * band.rowHeight - .5);
+    assert.ok(y + radius <= (row + 1) * band.rowHeight - .5);
+  }
 });
 
 test('the mock spectrum peaks at exactly the gain', () => {

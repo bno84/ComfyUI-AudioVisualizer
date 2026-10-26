@@ -140,9 +140,14 @@ def _spectrum(style, width, band_h, dot, fps, level, rows=None):
         columns, q = 64, 12
         rows = rows or H
     else:                   # LED matrix; bands narrower than the dot spacing so a tone lights ~2-3 columns
-        grid = f"lum='255*clip({dot}*0.4-hypot(mod(X,{dot})-({dot}-1)/2,mod(Y,{dot})-({dot}-1)/2),0,1)'"
         columns, q = W // dot, W // dot * 11 // 32
         rows = rows or H // dot
+        # The nearest-neighbour mask fills W x H, so its cells are usually
+        # slightly larger than dot. Center each LED in those same cells;
+        # a fixed-pitch grid drifts across their edges and gets sliced.
+        grid = (f"lum='255*clip({dot}*0.4-hypot("
+                f"(mod((X+0.5)*{columns}/{W},1)-0.5)*{W}/{columns},"
+                f"(mod((Y+0.5)*{rows}/{H},1)-0.5)*{H}/{rows}),0,1)'")
     # tlength sets constant-Q analysis bands (capped at 0.17s in the bass to limit lag).
     # The default window makes high tones ~1px wide, which area-averaging shrinks away.
     bands = [

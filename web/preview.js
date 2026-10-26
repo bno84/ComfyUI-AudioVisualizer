@@ -14,7 +14,8 @@ export function bandLayout({ width, height, bandHeight, style, dot }) {
   const h = 2 * Math.round((height * bandHeight) / 2);   // showcqt needs an even height
   const y = height - h - BOTTOM_MARGIN;
   if (style === "dots") {
-    return { x: 0, y, w: width, h, columns: Math.floor(width / dot), rows: Math.floor(h / dot), cell: dot };
+    const columns = Math.floor(width / dot), rows = Math.floor(h / dot);
+    return { x: 0, y, w: width, h, columns, rows, cell: width / columns, rowHeight: h / rows, radius: dot * 0.4 };
   }
   return { x: MARGIN, y, w: width - MARGIN, h, columns: 64, rows: 0, cell: (width - MARGIN) / 64 };
 }
@@ -103,7 +104,7 @@ function draw(canvas, node, still) {
       const lit = Math.round(shown * band.rows);
       for (let row = 0; row < lit; row++) {
         g.beginPath();
-        g.arc((column + 0.5) * band.cell, band.h - (row + 0.5) * band.cell, band.cell * 0.4, 0, 2 * Math.PI);
+        g.arc((column + 0.5) * band.cell - 0.5, band.h - (row + 0.5) * band.rowHeight - 0.5, band.radius, 0, 2 * Math.PI);
         g.fill();
       }
     } else {

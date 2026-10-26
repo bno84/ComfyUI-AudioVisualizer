@@ -210,6 +210,26 @@ class RenderTest(unittest.TestCase):
             self.assertGreater(max(np.abs(a.astype(int)-b).max() for a,b in ((plain[n], trail[n]) for n in range(33, 45))), 0)
             npt.assert_array_equal(plain[89], trail[89])
 
+    def test_dot_grid_stays_clear_of_mask_cell_edges_in_both_axes(self):
+        # Remainders in either dimension used to put mask boundaries through LEDs.
+        for width, height, dot in ((572, 186, 17), (1280, 252, 17), (640, 62, 12), (576, 192, 12)):
+            with self.subTest(width=width, height=height, dot=dot):
+                _, _, _, grid, columns = R._spectrum("dots", width, height, dot, 30, 1)
+                rows = height // dot
+                graph = av.filter.Graph()
+                source = graph.add("color", f"black:s={width}x{height}:r=30")
+                end = R._chain(graph, source, ("format", "gray"), ("geq", grid))
+                sink = graph.add("buffersink")
+                end.link_to(sink)
+                graph.configure()
+                pixels = sink.pull().to_ndarray(format="gray")
+                self.assertGreater(pixels.max(), 0)
+                # Include the outside edges: a remainder must not leave half an LED there.
+                xs = np.clip(np.rint(np.arange(columns + 1) * width / columns - .5).astype(int), 0, width-1)
+                ys = np.clip(np.rint(np.arange(rows + 1) * height / rows - .5).astype(int), 0, height-1)
+                self.assertEqual(int(pixels[:, xs].max()), 0, "LED crosses a column boundary")
+                self.assertEqual(int(pixels[ys, :].max()), 0, "LED crosses a row boundary")
+
     def test_quality_controls_and_legacy_override(self):
         for options, expected in [
             ({}, 18), ({"codec": "h264"}, 22),
