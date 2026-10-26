@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-audiovisualizer"
 description = "Turn a still image and audio into a spectrum visualizer video with bars or LED dots, using FFmpeg's libraries through PyAV."
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["av>=17.0.0"]
