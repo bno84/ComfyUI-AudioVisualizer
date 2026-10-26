@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const source = (await readFile(new URL('../web/preview.js', import.meta.url), 'utf8'))
   .replace('function draw(', 'export function draw(')
   .replace('import { app } from "../../scripts/app.js";', 'const app = { registerExtension() {} };');
-const { bandLayout, mockLevels, draw } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { bandLayout, mockLevels, draw, vignetteFactor } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('the band sits where render.py puts it', () => {
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.16, style: 'bars', dot: 12 }),
@@ -63,4 +63,59 @@ test('none preview draws the still without a band or spectrum', () => {
   const result = draw(canvas, node, { naturalWidth: 640, naturalHeight: 144 });
   assert.equal(result.band, null);
   assert.ok(drawn && restored);
+});
+
+const vignetteReference = JSON.parse(await readFile(new URL('./vignette-reference.json', import.meta.url), 'utf8'));
+
+test('vignette agrees with actual FFmpeg RGB filter samples at every tested strength/aspect', () => {
+  for (const { width, height, strength, points } of vignetteReference.cases) {
+    for (const { x, y, value } of points) {
+      const actual = 200 * vignetteFactor(x, y, width, height, strength);
+      assert.ok(Math.abs(actual - value) <= 1.01,
+        JSON.stringify({ width, height, strength, x, y, expected: value, actual }));
+    }
+    assert.equal(vignetteFactor(0, 0, width, height, 0), 1);
+  }
+});
+
+test('vignette mask caches source dimensions, preview resolution and strength', () => {
+  const previousDocument = globalThis.document;
+  const masks = [], drawn = [];
+  globalThis.document = { createElement(name) {
+    assert.equal(name, 'canvas');
+    const mask = { getContext() { return {
+      createImageData(w, h) { return { data: new Uint8ClampedArray(w*h*4) }; },
+      putImageData(image) { mask.rgba = image.data; },
+    }; } };
+    masks.push(mask);
+    return mask;
+  } };
+  try {
+    const canvas = { width: 120, height: 160, getContext() { return {
+      save() {}, restore() {}, clearRect() {}, drawImage(image) { drawn.push(image); },
+    }; } };
+    const node = { widgets: [{ name: 'style', value: '(none)' }, { name: 'vignette', value: 1 }] };
+    const still = { naturalWidth: 720, naturalHeight: 960 };
+    draw(canvas, node, still);
+    assert.equal(masks.length, 1);
+    assert.equal(masks[0].rgba[3], 255);
+    assert.equal(masks[0].rgba[(80*120+60)*4+3], 0);
+    assert.deepEqual(drawn, [still, masks[0]]);
+    draw(canvas, node, still);
+    assert.equal(masks.length, 1);
+    node.widgets[1].value = .4;
+    draw(canvas, node, still);
+    assert.equal(masks.length, 2);
+    canvas.width = 180;
+    draw(canvas, node, still);
+    assert.equal(masks.length, 3);
+    draw(canvas, node, { naturalWidth: 960, naturalHeight: 720 });
+    assert.equal(masks.length, 4);
+    node.widgets[1].value = 0;
+    drawn.length = 0;
+    draw(canvas, node, still);
+    assert.deepEqual(drawn, [still]);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });

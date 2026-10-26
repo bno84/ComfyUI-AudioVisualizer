@@ -44,7 +44,7 @@ returns a `VIDEO`, with the workflow embedded in the file.
 - **Vignette:** edge darkening from 0 (off) to 1 (strongest). The default
   is 0 (off); 0.4 reproduces the original look. Workflows without this control
   also default to off; explicitly saved strengths are preserved.
-  The preview approximates the selected strength.
+  The preview uses the same edge-darkening falloff as the render.
 - **Preview:** the node shows the connected still with the band at its height
   and a mock spectrum peaking at the chosen gain, to check placement before
   rendering. The spectrum shape is made up; only the real render uses the

@@ -1,5 +1,6 @@
 """Real library-filter and codec tests: no FFmpeg/FFprobe executable is required."""
 import importlib.util
+import json
 import math
 import os
 import stat
@@ -162,6 +163,20 @@ class RenderTest(unittest.TestCase):
             corners.append(float(frame[8, 8].mean()))
         self.assertAlmostEqual(corners[0], 180, delta=3)
         self.assertTrue(all(a > b for a, b in zip(corners, corners[1:])), corners)
+
+    def test_vignette_preview_reference_matches_real_composition(self):
+        fixture = json.loads((Path(__file__).parent / "vignette-reference.json").read_text())
+        for case in fixture["cases"]:
+            width, height, strength = case["width"], case["height"], case["strength"]
+            with self.subTest(width=width, height=height, strength=strength):
+                audio = R._Audio(bytes(4800*4), 48000, 1)
+                graph, sink, source = R._composition(bytes([200]*3)*width*height, width, height,
+                                                     audio, "(none)", 0, 17, 60, 1,
+                                                     "#9750c4", 0, 0, strength, 0, 0)
+                frame = R._Feed(audio, source).read(sink).to_ndarray(format="rgb24")
+                for point in case["points"]:
+                    self.assertAlmostEqual(float(frame[point["y"], point["x"]].mean()),
+                                           point["value"], delta=3)
 
     def test_gain_one_reaches_the_band_top_at_any_volume(self):
         rate, fps = 48000, 30

@@ -20,6 +20,44 @@ export function bandLayout({ width, height, bandHeight, style, dot }) {
   return { x: MARGIN, y, w: width - MARGIN, h, columns: 64, rows: 0, cell: (width - MARGIN) / 64 };
 }
 
+// FFmpeg vf_vignette.c, default center/aspect and the renderer's PI/2 * strength.
+// Its distance coordinates are truncated to integers before the cosine^4 falloff.
+export function vignetteFactor(x, y, width, height, strength) {
+  if (strength <= 0) return 1;
+  const dx = Math.trunc(x - width / 2), dy = Math.trunc(y - height / 2);
+  const radius = Math.hypot(dx, dy) / Math.hypot(width / 2, height / 2);
+  if (radius > 1) return 0;
+  return Math.cos((Math.PI / 2) * strength * radius) ** 4;
+}
+
+const vignetteMasks = new WeakMap();
+
+function applyVignette(canvas, g, width, height, strength) {
+  const key = JSON.stringify([canvas.width, canvas.height, width, height, strength]);
+  let cached = vignetteMasks.get(canvas);
+  if (cached?.key !== key) {
+    const mask = document.createElement("canvas");
+    mask.width = canvas.width;
+    mask.height = canvas.height;
+    const context = mask.getContext("2d");
+    const rgba = context.createImageData(mask.width, mask.height);
+    for (let y = 0; y < mask.height; y++) {
+      // Map preview pixel centers to source-image coordinates, including portrait images.
+      const sy = ((y + 0.5) * height) / mask.height - 0.5;
+      for (let x = 0; x < mask.width; x++) {
+        const sx = ((x + 0.5) * width) / mask.width - 0.5;
+        rgba.data[(y * mask.width + x) * 4 + 3] =
+          255 * (1 - vignetteFactor(sx, sy, width, height, strength));
+      }
+    }
+    context.putImageData(rgba, 0, 0);
+    cached = { key, mask };
+    vignetteMasks.set(canvas, cached);
+  }
+  // Black source-over is RGB multiplication, matching the filter before spectrum composition.
+  g.drawImage(cached.mask, 0, 0);
+}
+
 // A typical moment of a song at its loudest: one narrow note at full height
 // over a bass bump near 60%, mids near 30% and a low treble tail.
 // Normalized so the loudest column is exactly `gain`; above 1 it clips.
@@ -65,16 +103,8 @@ function draw(canvas, node, still) {
     g.textAlign = "center";
     g.fillText("Connect a Load Image node to preview your still", canvas.width / 2, canvas.height / 3);
   }
-  // Approximate FFmpeg's edge darkening; zero leaves the still untouched.
   const strength = value(node, "vignette") ?? 0;
-  if (strength > 0) {
-    const cx = canvas.width / 2, cy = canvas.height / 2, r = Math.hypot(cx, cy);
-    const vignette = g.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
-    vignette.addColorStop(0, "rgba(0,0,0,0)");
-    vignette.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.45 * strength / 0.4)})`);
-    g.fillStyle = vignette;
-    g.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  if (strength > 0) applyVignette(canvas, g, width, height, strength);
 
   if (!band) {
     g.restore();
