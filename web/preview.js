@@ -167,13 +167,18 @@ class Preview {
     this.root.append(this.canvas, this.caption);
     this.aspect = PLACEHOLDER[1] / PLACEHOLDER[0];
     this.widget = node.addDOMWidget("preview", "preview", this.root, {
-      serialize: false, canvasOnly: true, hideOnZoom: false,
+      serialize: false, hideInPanel: true, hideOnZoom: false,
       getMinHeight: () => Math.max(80, (this.node.size[0] - 20) * this.aspect + 18),
     });
     this.widget.serialize = false;
+    // Vue nodes do not call onDrawForeground. Also notice changes to a
+    // connected image after it finishes loading; update() skips unchanged state.
+    this.refreshTimer = setInterval(() => {
+      if (this.root.isConnected) this.update();
+    }, 200);
   }
 
-  // Cheap enough to call on every canvas draw; repaints only when something changed.
+  // Both renderers share this check; repaint only when something changed.
   update() {
     const still = stillOf(this.node);
     const names = ["style", "band_height", "dot_spacing", "color", "glow", "gain", "vignette"];
@@ -198,6 +203,11 @@ app.registerExtension({
   name: "bno84.AudioVisualizerPreview",
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE) return;
+    const onRemoved = nodeType.prototype.onRemoved;
+    nodeType.prototype.onRemoved = function (...args) {
+      clearInterval(this.audioVisualizerPreview?.refreshTimer);
+      return onRemoved?.apply(this, args);
+    };
     const onDrawForeground = nodeType.prototype.onDrawForeground;
     nodeType.prototype.onDrawForeground = function (...args) {
       const result = onDrawForeground?.apply(this, args);
