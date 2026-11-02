@@ -265,13 +265,16 @@ class RenderTest(unittest.TestCase):
                 self.assertEqual(streams.call_args.args[7], expected)
 
     def test_large_metadata_unicode_filename_and_post_fade_keyframe(self):
-        metadata = {"workflow": '{"payload":"' + "x"*524288 + '"}', "prompt": "音楽 café\n#=;\\"}
+        metadata = {"workflow": '{"payload":"' + "x"*524288 + '"}', "prompt": "音楽 café\n#=;\\",
+                    "title": "Neon Lane", "lyrics": "[verse]\nネオン"}
         for codec in R.CODECS:
             path, _ = self.render(filename="音楽 café [test].mp4", codec=codec, style="(none)",
                                   data=tone(2), fps=60, fade_in=.5, fade_out=0, metadata=metadata)
             with av.open(str(path)) as source:
                 self.assertEqual(source.metadata["workflow"], metadata["workflow"])
                 self.assertEqual(source.metadata["prompt"], metadata["prompt"])
+                self.assertEqual(source.metadata["title"], "Neon Lane")
+                self.assertEqual(source.metadata["lyrics"], "[verse]\nネオン")
                 frames = list(source.decode(video=0))
                 self.assertTrue(frames[31].key_frame)
                 if codec == "h265":

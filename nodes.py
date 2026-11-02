@@ -1,9 +1,9 @@
-import json
 import os
 
 import folder_paths
 
 from . import render as R
+from .metadata import video_metadata
 
 try:
     from comfy_execution.graph_utils import ExecutionBlocker
@@ -65,6 +65,13 @@ class AudioVisualizer:
                 "crf": ("INT", {"default": -1, "min": -1, "max": 51,
                                 "tooltip": "Legacy workflow CRF; migrated to the selected codec control"}),
             },
+            # Player info, link-only: unconnected or empty means nothing is written.
+            "optional": {
+                "title": ("STRING", {"forceInput": True, "tooltip": "mp4 title; players such as Dragon Player show it."}),
+                "artist": ("STRING", {"forceInput": True, "tooltip": "mp4 artist."}),
+                "comment": ("STRING", {"forceInput": True, "tooltip": "mp4 comment, such as the music style."}),
+                "lyrics": ("STRING", {"forceInput": True, "tooltip": "mp4 lyrics."}),
+            },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
@@ -83,7 +90,7 @@ class AudioVisualizer:
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
             video_codec="h265", opus_bitrate=128, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
-            fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT):
+            fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics=""):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -105,10 +112,8 @@ class AudioVisualizer:
         folder, name, counter, subfolder, _ = folder_paths.get_save_image_path(
             f"{filename_prefix}_{style}", folder_paths.get_output_directory(), width, height)
         file = f"{name}_{counter:05}_.mp4"
-        metadata = None
-        if not args.disable_metadata:
-            tags = {**(extra_pnginfo or {}), **({"prompt": prompt} if prompt is not None else {})}
-            metadata = {key: json.dumps(value) for key, value in tags.items()} or None
+        metadata = None if args.disable_metadata else video_metadata(
+            extra_pnginfo, prompt, title=title, artist=artist, comment=comment, lyrics=lyrics)
 
         bar = None
 

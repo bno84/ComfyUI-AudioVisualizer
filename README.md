@@ -33,6 +33,10 @@ Add **🎵 Audio visualizer video (still + spectrum)** from **audio/visualize**
 and connect an image and audio. It saves to ComfyUI's output folder and
 returns a `VIDEO`, with the workflow embedded in the file.
 
+Optionally connect text to **title**, **artist**, **comment** and **lyrics**.
+Each one connected and not empty is saved in the mp4's metadata. Some players,
+such as Dragon Player, show the title; VLC does not.
+
 - **Visualization:** (none) (still image + audio only), bars, or dots, color, band height, gain, glow, and trails.
   Spectrum controls hide in (none) mode; dot spacing appears in dots mode.
 - **Band height:** the spectrum band's share of the video height, 0.1–0.9
