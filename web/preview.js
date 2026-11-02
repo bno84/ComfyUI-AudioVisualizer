@@ -164,6 +164,7 @@ class Preview {
     this.canvas.style.cssText = "width:100%;border-radius:4px;";
     this.caption = document.createElement("div");
     this.caption.style.cssText = "font:11px sans-serif;opacity:.7;text-align:center;";
+    this.caption.textContent = "Mock preview";
     this.root.append(this.canvas, this.caption);
     this.aspect = PLACEHOLDER[1] / PLACEHOLDER[0];
     this.widget = node.addDOMWidget("preview", "preview", this.root, {
@@ -189,9 +190,7 @@ class Preview {
     const aspect = still ? still.naturalHeight / still.naturalWidth : PLACEHOLDER[1] / PLACEHOLDER[0];
     this.canvas.width = width;
     this.canvas.height = Math.round(width * aspect);
-    const { height, band } = draw(this.canvas, this.node, still);
-    const gain = value(this.node, "gain") ?? 1.3;
-    this.caption.textContent = !band ? "Still image · no spectrum" : `Mock spectrum · band ${band.h}px of ${height}px · loudest moment at ${Math.round(gain * 100)}% of the band`;
+    draw(this.canvas, this.node, still);
     if (aspect !== this.aspect) {
       this.aspect = aspect;
       this.node.setSize([this.node.size[0], this.node.computeSize()[1]]);
