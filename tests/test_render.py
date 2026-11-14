@@ -248,7 +248,8 @@ class RenderTest(unittest.TestCase):
         for style in ("bars", "dots"):
             plain, glow, trail = frames(style), frames(style, glow=1), frames(style, trail=.8)
             self.assertTrue(np.any(plain[15][-65:] != 180))
-            npt.assert_array_equal(plain[15][:-73], 180)
+            # FFmpeg pixel conversion can round 180 to 179 on macOS with PyAV 17.
+            npt.assert_allclose(plain[15][:-73], 180, rtol=0, atol=1)
             self.assertGreater(np.abs(plain[15].astype(int)-glow[15]).max(), 0)
             self.assertGreater(max(np.abs(a.astype(int)-b).max() for a,b in ((plain[n], trail[n]) for n in range(33, 45))), 0)
             npt.assert_array_equal(plain[89], trail[89])
