@@ -81,6 +81,34 @@ class RenderTest(unittest.TestCase):
                            **{"codec": "h264", "fps": 30, **opts})
         return path, written
 
+    def test_vp9_opus_containers_metadata_and_seeking(self):
+        for container in R.CONTAINERS:
+            for style in R.STYLES:
+                with self.subTest(container=container, style=style):
+                    path, count = self.render(filename=f"vp9.{container}", codec="vp9",
+                                              container=container, audio_codec="opus", style=style,
+                                              vp9_crf=32, metadata={"workflow": '{"nodes": []}', "title": "Web video"})
+                    with av.open(str(path)) as source:
+                        self.assertEqual(source.streams.video[0].codec_context.name, "vp9")
+                        self.assertEqual(source.streams.audio[0].codec_context.name, "opus")
+                        self.assertEqual(sum(1 for _ in source.decode(video=0)), count)
+                        tags = {k.lower(): v for k, v in source.metadata.items()}
+                        self.assertEqual(json.loads(tags["workflow"]), {"nodes": []})
+                        self.assertEqual(tags["title"], "Web video")
+                    self.assertGreater(len(audio_samples(path)), 45000)
+                    with av.open(str(path)) as source:
+                        source.seek(av.time_base // 2)
+                        self.assertTrue(list(source.decode(video=0)))
+                    if container == "webm":
+                        data = path.read_bytes()
+                        self.assertLess(data.rindex(bytes.fromhex("1c53bb6b")), data.index(bytes.fromhex("1f43b675")))
+
+    def test_invalid_webm_combinations_fail_before_writing(self):
+        for codec, audio in (("h264", "opus"), ("h265", "opus"), ("vp9", "flac"), ("vp9", "aac")):
+            with self.subTest(codec=codec, audio=audio), self.assertRaisesRegex(ValueError, "WebM requires"):
+                self.render(container="webm", codec=codec, audio_codec=audio)
+        self.assertEqual(list(self.directory.iterdir()), [])
+
     def test_styles_rates_codecs_metadata_and_progress(self):
         for style in R.STYLES:
             for fps in R.FRAME_RATES:

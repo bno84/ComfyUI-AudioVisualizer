@@ -1,6 +1,6 @@
 # Audio Visualizer for ComfyUI
 
-Turn a still image and audio into an MP4 with a bar or dots spectrum, or just the still image.
+Turn a still image and audio into an MP4 or WebM with a bar or dots spectrum, or just the still image.
 Insert your own image and use the mock preview to adjust the style.
 
 ![Node with visual style editor](docs/node-screenshot.png)
@@ -34,7 +34,7 @@ and connect an image and audio. It saves to ComfyUI's output folder and
 returns a `VIDEO`, with the workflow embedded in the file.
 
 Optionally connect text to **title**, **artist**, **comment** and **lyrics**.
-Each one connected and not empty is saved in the mp4's metadata. Some players,
+Each one connected and not empty is saved in the video's metadata. Some players,
 such as Dragon Player, show the title; VLC does not.
 
 - **Visualization:** (none) (still image + audio only), bars, or dots, color, band height, gain, glow, and trails.
@@ -59,8 +59,10 @@ such as Dragon Player, show the title; VLC does not.
   for short clips and can overlap. Audio is unchanged.
 - **Timing:** 30/60 FPS, start, and duration in seconds. Duration 0 uses the
   rest of the audio.
-- **Codecs:** H.265 (CRF 18) or H.264 (CRF 22); FLAC (default), AAC
+- **Codecs:** H.265 (CRF 18), H.264 (CRF 22), or VP9 (CRF 32, libvpx-vp9); FLAC (default), AAC
   (192 kbps), or Opus (128 kbps). Each codec keeps its own settings.
+- **Container:** MP4 (default, FastStart) or WebM. Choose VP9 + Opus for WebM;
+  other combinations are rejected before rendering. WebM writes its seek index at the front.
 
 The filename includes the style automatically, e.g.
 `video/song_visualizer_bars_00001_.mp4`. Disable `enabled` to skip rendering.
@@ -68,12 +70,12 @@ The filename includes the style automatically, e.g.
 Bars and dots measure the audio through library filters before rendering.
 Quiet audio can need multiple measurement passes; (none) skips analysis.
 Rendering feeds bounded audio chunks and frames directly to the encoders,
-without temporary raw image/audio files or a full-song image batch. The MP4
+without temporary raw image/audio files or a full-song image batch. The video
 is published only after encoding closes successfully; cancellation removes
-the temporary output. A hard process kill can leave a `.audio-viz-*.mp4`
+the temporary output. A hard process kill can leave a `.audio-viz-*`
 file in the output folder; it can be deleted after that process has stopped.
 
-Codec choices, defaults, saved controls and the VIDEO output remain the same.
+Existing workflows retain their MP4 output and codec settings.
 The FFmpeg libraries in a different PyAV version can produce slightly different
 pixels. Opus in MP4 can expose encoder padding when decoded to raw samples,
 although the recorded audio duration is preserved.

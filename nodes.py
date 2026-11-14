@@ -53,9 +53,12 @@ class AudioVisualizer:
                                     "tooltip": "seconds into the audio"}),
                 "duration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 86400.0, "step": 0.1,
                                        "tooltip": "seconds; 0 = to the end"}),
+                "container": (list(R.CONTAINERS), {"default": "mp4",
+                               "tooltip": "WebM requires VP9 + Opus. MP4 uses FastStart."}),
                 "video_codec": (list(R.CODECS),),
                 "h265_crf": ("INT", {"default": R.DEFAULT_CRF["h265"], "min": 0, "max": 51}),
                 "h264_crf": ("INT", {"default": R.DEFAULT_CRF["h264"], "min": 0, "max": 51}),
+                "vp9_crf": ("INT", {"default": R.DEFAULT_CRF["vp9"], "min": 0, "max": 63}),
                 "audio_codec": (list(R.AUDIO_CODECS), {"default": "flac",
                                   "tooltip": "FLAC: lossless 24-bit. AAC / Opus: adjustable bitrate."}),
                 "aac_bitrate": ("INT", {"default": 192, "min": 32, "max": 512,
@@ -67,10 +70,10 @@ class AudioVisualizer:
             },
             # Player info, link-only: unconnected or empty means nothing is written.
             "optional": {
-                "title": ("STRING", {"forceInput": True, "tooltip": "mp4 title; players such as Dragon Player show it."}),
-                "artist": ("STRING", {"forceInput": True, "tooltip": "mp4 artist."}),
-                "comment": ("STRING", {"forceInput": True, "tooltip": "mp4 comment, such as the music style."}),
-                "lyrics": ("STRING", {"forceInput": True, "tooltip": "mp4 lyrics."}),
+                "title": ("STRING", {"forceInput": True, "tooltip": "Video title; players such as Dragon Player show it."}),
+                "artist": ("STRING", {"forceInput": True, "tooltip": "Video artist."}),
+                "comment": ("STRING", {"forceInput": True, "tooltip": "Video comment, such as the music style."}),
+                "lyrics": ("STRING", {"forceInput": True, "tooltip": "Video lyrics."}),
             },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
@@ -80,7 +83,7 @@ class AudioVisualizer:
     OUTPUT_NODE = True
     FUNCTION = "run"
     CATEGORY = CATEGORY
-    DESCRIPTION = ("🎵 Still image + audio → 30 or 60 fps mp4 with a constant-Q spectrum band along the bottom, "
+    DESCRIPTION = ("🎵 Still image + audio → 30 or 60 fps MP4 or WebM with a constant-Q spectrum band along the bottom, "
                    "rendered by PyAV using CPU FFmpeg filters. Saves to the output folder with the workflow embedded.")
 
     def check_lazy_status(self, enabled, image=None, audio=None, **_):
@@ -90,7 +93,8 @@ class AudioVisualizer:
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
             video_codec="h265", opus_bitrate=128, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
-            fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics=""):
+            fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics="",
+            container="mp4", vp9_crf=32):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -111,7 +115,7 @@ class AudioVisualizer:
 
         folder, name, counter, subfolder, _ = folder_paths.get_save_image_path(
             f"{filename_prefix}_{style}", folder_paths.get_output_directory(), width, height)
-        file = f"{name}_{counter:05}_.mp4"
+        file = f"{name}_{counter:05}_.{container}"
         metadata = None if args.disable_metadata else video_metadata(
             extra_pnginfo, prompt, title=title, artist=artist, comment=comment, lyrics=lyrics)
 
@@ -129,7 +133,8 @@ class AudioVisualizer:
                  audio_codec=audio_codec, audio_bitrate=opus_bitrate if audio_bitrate is None else audio_bitrate,
                  start=start, duration=duration,
                  fps=fps, aac_bitrate=aac_bitrate, h264_crf=h264_crf, h265_crf=h265_crf, metadata=metadata, on_frame=on_frame,
-                 band_height=band_height, vignette=vignette, fade_in=fade_in, fade_out=fade_out)
+                 band_height=band_height, vignette=vignette, fade_in=fade_in, fade_out=fade_out,
+                 container=container, vp9_crf=vp9_crf)
         return {"ui": {"images": [{"filename": file, "subfolder": subfolder, "type": "output"}], "animated": (True,)},
                 "result": (InputImpl.VideoFromFile(path),)}
 

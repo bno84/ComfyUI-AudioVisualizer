@@ -44,6 +44,7 @@ export function updateWidgets(node) {
     ["crf", false],
     ["h264_crf", value("video_codec") === "h264"],
     ["h265_crf", value("video_codec") === "h265"],
+    ["vp9_crf", value("video_codec") === "vp9"],
     ["opus_bitrate", value("audio_codec") === "opus"],
     ["aac_bitrate", value("audio_codec") === "aac"],
   ]) {
@@ -85,7 +86,7 @@ app.registerExtension({
         if (hook === "onNodeCreated") {
           defaults.set(this, Object.fromEntries(this.widgets.map((w) => [w.name, w.value])));
           addSeparator(this, "fps");
-          addSeparator(this, "video_codec");
+          addSeparator(this, "container");
         }
         if (hook === "onConfigure") {
           const data = args[0];

@@ -20,11 +20,12 @@ BOTTOM_MARGIN = 3
 STYLES = ("(none)", "bars", "dots")
 DEFAULT_FADE_IN = 1.5
 DEFAULT_FADE_OUT = 2.5
-CODECS = ("h265", "h264")
+CONTAINERS = ("mp4", "webm")
+CODECS = ("h265", "h264", "vp9")
 AUDIO_CODECS = ("flac", "opus", "aac")
-DEFAULT_CRF = {"h265": 18, "h264": 22}
+DEFAULT_CRF = {"h265": 18, "h264": 22, "vp9": 32}
 COLOR = re.compile(r"^(0x|#)?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$|^[A-Za-z]+$")
-VIDEO_ENCODERS = {"h264": "libx264", "h265": "libx265"}
+VIDEO_ENCODERS = {"h264": "libx264", "h265": "libx265", "vp9": "libvpx-vp9"}
 AUDIO_ENCODERS = {"flac": "flac", "aac": "aac", "opus": "libopus"}
 SCENE_FILTERS = frozenset({"buffer", "buffersink", "format", "loop", "setpts", "fps"})
 SPECTRUM_FILTERS = frozenset({
@@ -262,6 +263,11 @@ def _streams(container, width, height, fps, codec, quality, audio_codec, bitrate
     video.width, video.height, video.pix_fmt = width, height, "yuv420p"
     video.codec_context.gop_size = fps * 10
     video.options = {"preset": "slow", "crf": str(quality), "forced-idr": "1"}
+    if codec == "vp9":
+        video.bit_rate = 0
+        video.options = {"deadline": "good", "cpu-used": "1", "crf": str(quality)}
+        if quality == 0:
+            video.options["lossless"] = "1"
     if codec == "h265":
         video.codec_context.codec_tag = "hvc1"
         video.options["x265-params"] = "log-level=warning:open-gop=0:min-keyint=1"
@@ -283,8 +289,8 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
            dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=128,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
            band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE,
-           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT):
-    """Render MP4 using CPU library filters. Inputs remain rgb24 and interleaved f32le bytes.
+           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=32):
+    """Render MP4 or WebM using CPU library filters. Inputs remain rgb24 and interleaved f32le bytes.
 
     band_height is the band's fraction of image height (0.1 to 0.9). gain 1.0
     makes the measured loudest moment reach the top of the band; (none) skips it.
@@ -294,6 +300,10 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     each lasting 0 to 3 seconds; zero disables the corresponding fade.
     Progress/cancellation callbacks run during measurement and encoding. Return the frame count.
     """
+    if container not in CONTAINERS:
+        raise ValueError(f"unknown container {container!r}")
+    if container == "webm" and (codec != "vp9" or audio_codec != "opus"):
+        raise ValueError("WebM requires VP9 video and Opus audio; choose vp9 and opus, or MP4")
     style = "(none)" if style == "none" else style
     if style not in STYLES:
         raise ValueError(f"unknown style {style!r}")
@@ -331,10 +341,11 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     for name, value in (("start", start), ("duration", duration)):
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} must be a finite nonnegative number of seconds")
-    quality = crf if crf >= 0 else {"h264": h264_crf, "h265": h265_crf}[codec]
+    quality = crf if crf >= 0 else {"h264": h264_crf, "h265": h265_crf, "vp9": vp9_crf}[codec]
     bitrate = aac_bitrate if audio_codec == "aac" else audio_bitrate
-    if not 0 <= quality <= 51:
-        raise ValueError("CRF must be 0 to 51")
+    max_crf = 63 if codec == "vp9" else 51
+    if not 0 <= quality <= max_crf:
+        raise ValueError(f"CRF must be 0 to {max_crf}")
     if audio_codec != "flac" and not 32 <= bitrate <= 512:
         raise ValueError("audio bitrate must be 32 to 512 kbit/s")
     if sample_rate <= 0 or not 1 <= channels <= 8 or len(samples) % (4 * channels):
@@ -371,10 +382,12 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     # Close the fd before PyAV opens it, including on Windows.
     output = os.fspath(output)
     temporary = os.path.join(os.path.dirname(os.path.abspath(output)),
-                             f".audio-viz-{os.urandom(16).hex()}.mp4")
+                             f".audio-viz-{os.urandom(16).hex()}.{container}")
     os.close(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666))
     try:
-        with av.open(temporary, "w", format="mp4", options={"movflags": "+faststart+use_metadata_tags"}) as container:
+        options = ({"movflags": "+faststart+use_metadata_tags"} if container == "mp4"
+                   else {"cues_to_front": "1"})
+        with av.open(temporary, "w", format=container, options=options) as container:
             container.metadata.update(metadata or {})
             video, sound = _streams(container, width, height, fps, codec, quality, audio_codec, bitrate, audio)
 
