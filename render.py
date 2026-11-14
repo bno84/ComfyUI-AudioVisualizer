@@ -23,7 +23,7 @@ DEFAULT_FADE_OUT = 2.5
 CONTAINERS = ("mp4", "webm")
 CODECS = ("h265", "h264", "vp9")
 AUDIO_CODECS = ("flac", "opus", "aac")
-DEFAULT_CRF = {"h265": 18, "h264": 22, "vp9": 32}
+DEFAULT_CRF = {"h265": 18, "h264": 22, "vp9": 20}
 COLOR = re.compile(r"^(0x|#)?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$|^[A-Za-z]+$")
 VIDEO_ENCODERS = {"h264": "libx264", "h265": "libx265", "vp9": "libvpx-vp9"}
 AUDIO_ENCODERS = {"flac": "flac", "aac": "aac", "opus": "libopus"}
@@ -289,7 +289,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
            dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=128,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
            band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE,
-           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=32):
+           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=20):
     """Render MP4 or WebM using CPU library filters. Inputs remain rgb24 and interleaved f32le bytes.
 
     band_height is the band's fraction of image height (0.1 to 0.9). gain 1.0

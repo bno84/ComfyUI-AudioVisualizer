@@ -59,7 +59,7 @@ such as Dragon Player, show the title; VLC does not.
   for short clips and can overlap. Audio is unchanged.
 - **Timing:** 30/60 FPS, start, and duration in seconds. Duration 0 uses the
   rest of the audio.
-- **Codecs:** H.265 (CRF 18), H.264 (CRF 22), or VP9 (CRF 32, libvpx-vp9); FLAC (default), AAC
+- **Codecs:** H.265 (CRF 18), H.264 (CRF 22), or VP9 (CRF 20, libvpx-vp9); FLAC (default), AAC
   (192 kbps), or Opus (128 kbps). Each codec keeps its own settings.
 - **Container:** MP4 (default, FastStart) or WebM. Choose VP9 + Opus for WebM;
   other combinations are rejected before rendering. WebM writes its seek index at the front.
