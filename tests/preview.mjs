@@ -324,3 +324,22 @@ test('preview rerenders at higher resolution when zoomed without changing node l
     globalThis.devicePixelRatio = previousRatio;
   }
 });
+
+
+test('bar mock uses the selected count for each stereo half and keeps other styles independent', () => {
+  assert.ok(PREVIEW_CONTROLS.includes('bar_count'));
+  assert.equal(bandLayout({ width: 320, height: 180, bandHeight: .35, dot: 17, style: 'bars', barCount: 256 }), null);
+  for (const count of [8, 32, 64, 128, 256]) {
+    const options = { width: 1028, height: 360, bandHeight: .35, dot: 17, style: 'bars', barCount: count };
+    const panels = spectrumPanels(options, true, 0);
+    for (const { band } of panels) {
+      assert.equal(band.columns, count);
+      assert.equal(band.cell, band.w/count);
+      assert.ok(band.cell > band.x);
+      const expectedMargin = 514 >= count*7 ? 6 : Math.max(1, Math.floor(514/(count*3)));
+      assert.equal(band.x, expectedMargin);
+    }
+    assert.equal(bandLayout({ ...options, style: 'spline' }).columns, 64);
+    assert.equal(bandLayout({ ...options, style: 'dots' }).columns, Math.floor(1028/17));
+  }
+});

@@ -120,3 +120,8 @@ stronger halos. The blur radius stays fixed at sigma 5 output pixels;
 
 Existing trail and glow controls apply to all styles. Their decay, blur and
 color behavior are unchanged. Existing workflows default to mirroring off.
+
+For `bars`, `bar_count` selects 8–256 bars (default 64), per side when stereo
+mirroring is enabled. Each spectrum needs at least `2 * bar_count + 2` output
+pixels of width. The mock uses the same count and spacing. Other styles keep
+their existing frequency resolution.

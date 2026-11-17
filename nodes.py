@@ -24,7 +24,8 @@ class AudioVisualizer:
                 "enabled": ("BOOLEAN", {"default": True, "tooltip": "off = render nothing and block the video "
                                                                     "output; image and audio aren't requested"}),
                 "filename_prefix": ("STRING", {"default": "video/song_visualizer"}),
-                "style": (list(R.STYLES), {"tooltip": "bars: 64 bars. dots: LED matrix. spline: smooth spectrum line. (none): still image and audio only"}),
+                "style": (list(R.STYLES), {"tooltip": "bars: adjustable bar count. dots: LED matrix. spline: smooth spectrum line. (none): still image and audio only"}),
+                "bar_count": ("INT", {"default": 64, "min": 8, "max": 256, "tooltip": "Number of bars per spectrum (per side with stereo mirroring). Needs at least two output pixels per bar plus margins."}),
                 "line_thickness": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 32.0, "step": 0.5, "tooltip": "Spline stroke thickness in output-image pixels."}),
                 "stereo_mirror": ("BOOLEAN", {"default": False, "tooltip": "Left/right channels mirrored horizontally; bass outside, treble toward the center. Mono repeats."}),
                 "stereo_gap": ("INT", {"default": 0, "min": 0, "max": 8192, "tooltip": "Center gap in pixels; each half needs at least 128 pixels."}),
@@ -97,7 +98,7 @@ class AudioVisualizer:
             video_codec="h265", opus_bitrate=192, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
             fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics="",
-            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0):
+            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0, bar_count=64):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -137,7 +138,7 @@ class AudioVisualizer:
                  start=start, duration=duration,
                  fps=fps, aac_bitrate=aac_bitrate, h264_crf=h264_crf, h265_crf=h265_crf, metadata=metadata, on_frame=on_frame,
                  band_height=band_height, vignette=vignette, fade_in=fade_in, fade_out=fade_out,
-                 container=container, vp9_crf=vp9_crf, stereo_mirror=stereo_mirror, stereo_gap=stereo_gap, line_thickness=line_thickness)
+                 container=container, vp9_crf=vp9_crf, stereo_mirror=stereo_mirror, stereo_gap=stereo_gap, line_thickness=line_thickness, bar_count=bar_count)
         return {"ui": {"images": [{"filename": file, "subfolder": subfolder, "type": "output"}], "animated": (True,)},
                 "result": (InputImpl.VideoFromFile(path),)}
 

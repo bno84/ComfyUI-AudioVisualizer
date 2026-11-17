@@ -9,21 +9,23 @@ const BOTTOM_MARGIN = 3;   // render.py: gap below the band
 const PLACEHOLDER = [1280, 720];
 
 // The band in image pixels, as render.py lays it out.
-export function bandLayout({ width, height, bandHeight, style, dot }) {
+export function bandLayout({ width, height, bandHeight, style, dot, barCount = 64 }) {
   if (["(none)", "none"].includes(style)) return null;
   width -= width % 2;
+  if (style === "bars" && width < 2 * barCount + 2) return null;
   const h = 2 * Math.round((height * bandHeight) / 2);   // showcqt needs an even height
   const y = height - h - BOTTOM_MARGIN;
   if (style === "dots") {
     const columns = Math.floor(width / dot), rows = Math.floor(h / dot);
     return { x: 0, y, w: width, h, columns, rows, cell: width / columns, rowHeight: h / rows, radius: dot * 0.4 };
   }
-  const margin = style === "spline" ? 0 : width >= 64 * (MARGIN + 1) ? MARGIN : Math.max(1, Math.floor(width / 192));
+  const columns = style === "bars" ? barCount : 64;
+  const margin = style === "spline" ? 0 : width >= columns * (MARGIN + 1) ? MARGIN : Math.max(1, Math.floor(width / (columns * 3)));
   const w = width - margin - ((width - margin) % 2);
-  return { x: margin, y, w, h, columns: 64, rows: 0, cell: w / 64 };
+  return { x: margin, y, w, h, columns, rows: 0, cell: w / columns };
 }
 
-export const PREVIEW_CONTROLS = ["style", "band_height", "dot_spacing", "color", "glow", "gain", "vignette", "stereo_mirror", "stereo_gap", "line_thickness"];
+export const PREVIEW_CONTROLS = ["style", "band_height", "dot_spacing", "color", "glow", "gain", "vignette", "stereo_mirror", "stereo_gap", "line_thickness", "bar_count"];
 
 export function spectrumPanels(options, mirrored, gap) {
   if (!mirrored) return [{ band: bandLayout(options), origin: 0, direction: 1 }];
@@ -120,7 +122,7 @@ function value(node, name) {
 function draw(canvas, node, still) {
   const [width, height] = still ? [still.naturalWidth, still.naturalHeight] : PLACEHOLDER;
   const style = value(node, "style") ?? "bars";
-  const options = { width, height, style, bandHeight: value(node, "band_height") ?? 0.35, dot: value(node, "dot_spacing") ?? 17 };
+  const options = { width, height, style, bandHeight: value(node, "band_height") ?? 0.35, dot: value(node, "dot_spacing") ?? 17, barCount: value(node, "bar_count") ?? 64 };
   const panels = spectrumPanels(options, value(node, "stereo_mirror") ?? false, value(node, "stereo_gap") ?? 0);
   const band = panels[0]?.band;
   const scale = canvas.width / width;

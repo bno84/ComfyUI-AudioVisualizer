@@ -407,6 +407,37 @@ class RenderTest(unittest.TestCase):
                 R._spline_mask(mask, case["width"], case["height"], case["thickness"])
             npt.assert_allclose(stroke.call_args.args[0][case["indices"]], case["points"], atol=1e-9)
 
+    def test_bar_count_grid_measurement_and_stereo_render(self):
+        for count in (8, 32, 64, 128, 256):
+            with self.subTest(count=count):
+                _, width, _, grid, columns = R._spectrum("bars", 1028, 64, 17, 30, 1, bar_count=count)
+                self.assertEqual(columns, count)
+                graph = av.filter.Graph()
+                source = graph.add("color", f"black:s={width}x64:r=30")
+                end = R._chain(graph, source, ("format", "gray"), ("geq", grid))
+                sink = graph.add("buffersink")
+                end.link_to(sink)
+                graph.configure()
+                lit = sink.pull().to_ndarray(format="gray")[0] > 127
+                runs = int(lit[0]) + np.count_nonzero(~lit[:-1] & lit[1:])
+                self.assertEqual(runs, count)
+                audio = R._Audio(tone(.3).tobytes(), 48000, 1)
+                level = R.full_scale(audio, "bars", 514, 17, 30, 9, bar_count=count)
+                self.assertEqual(R._peak(audio, "bars", 514, 17, 30, level, 9, None, bar_count=count), 1)
+                for stereo in (False, True):
+                    with patch.object(R, "_spectrum", wraps=R._spectrum) as spectrum:
+                        path, frames = self.render(width=1028, data=tone(.3), bar_count=count,
+                                                  stereo_mirror=stereo, stereo_gap=0)
+                    self.assertTrue(path.exists())
+                    self.assertEqual(frames, 9)
+                    self.assertTrue(spectrum.call_args_list)
+                    self.assertTrue(all(c.kwargs.get("bar_count") == count for c in spectrum.call_args_list))
+        for value in (0, 7, 257, 32.5, True):
+            with self.assertRaisesRegex(ValueError, "bar_count"):
+                self.render(bar_count=value)
+        with self.assertRaisesRegex(ValueError, "pixels per spectrum"):
+            self.render(bar_count=256, stereo_mirror=True)
+
     def test_quality_controls_and_legacy_override(self):
         for options, expected in [
             ({}, 18), ({"codec": "h264"}, 22),
