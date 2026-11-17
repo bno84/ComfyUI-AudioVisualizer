@@ -59,7 +59,7 @@ class AudioVisualizer:
                                        "tooltip": "seconds; 0 = to the end"}),
                 "container": (list(R.CONTAINERS), {"default": "mp4",
                                "tooltip": "WebM requires VP9 + Opus. MP4 uses FastStart."}),
-                "video_codec": (list(R.CODECS),),
+                "video_codec": (list(R.CODECS), {"default": "h264"}),
                 "h265_crf": ("INT", {"default": R.DEFAULT_CRF["h265"], "min": 0, "max": 51}),
                 "h264_crf": ("INT", {"default": R.DEFAULT_CRF["h264"], "min": 0, "max": 51}),
                 "vp9_crf": ("INT", {"default": R.DEFAULT_CRF["vp9"], "min": 0, "max": 63}),
@@ -95,7 +95,7 @@ class AudioVisualizer:
 
     def run(self, image, audio, enabled, filename_prefix, style, gain, color, glow, trail, crf, audio_codec,
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
-            video_codec="h265", opus_bitrate=192, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
+            video_codec="h264", opus_bitrate=192, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
             fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics="",
             container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0, bar_count=64):

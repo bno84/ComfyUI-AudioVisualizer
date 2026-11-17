@@ -417,7 +417,7 @@ def _streams(container, width, height, fps, codec, quality, audio_codec, bitrate
 
 
 def render(pixels, width, height, samples, sample_rate, channels, output, *, style="bars", color="#9750c4",
-           dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=192,
+           dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h264", crf=-1, audio_codec="flac", audio_bitrate=192,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
            band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE,
            fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0, bar_count=64):

@@ -12,7 +12,7 @@ delete globalThis.__audioVisualizerTestApp;
 const initial = {
   enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', bar_count: 64, line_thickness: 2, stereo_mirror: false, stereo_gap: 0, dot_spacing: 17,
   color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fade_in: 1.5, fade_out: 2.5, fps: 60, start: 0, duration: 0,
-  container: 'mp4', video_codec: 'h265', h265_crf: 18, h264_crf: 22, vp9_crf: 20, audio_codec: 'flac',
+  container: 'mp4', video_codec: 'h264', h265_crf: 18, h264_crf: 22, vp9_crf: 20, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 192, crf: -1,
 };
 class Node {
@@ -44,7 +44,7 @@ test('three unlabeled groups, with dot spacing and codec controls beside their s
   assert.deepEqual(node.widgets.filter(w => !w.hidden).map(w => w.name), [
     'enabled', 'filename_prefix', 'style', 'bar_count', 'stereo_mirror', 'color', 'band_height', 'gain', 'glow', 'trail', 'vignette', 'fade_in', 'fade_out',
     '__separator_fps', 'fps', 'start', 'duration', '__separator_container',
-    'container', 'video_codec', 'h265_crf', 'audio_codec',
+    'container', 'video_codec', 'h264_crf', 'audio_codec',
   ]);
   change(node, 'style', 'dots');
   assert.equal(widget(node, 'dot_spacing').hidden, undefined);
@@ -268,4 +268,22 @@ test('bar count is bars-only and migrates and reloads without shifting values', 
   assert.equal(widget(copy, 'bar_count').value, 32);
   assert.ok(!widget(copy, 'bar_count').hidden);
   assert.equal(widget(copy, 'gain').value, 1.3);
+});
+
+
+test('new nodes default to MP4 H264 FLAC and preserve saved H265 or WebM choices', () => {
+  const fresh = new Node();
+  assert.equal(widget(fresh, 'container').value, 'mp4');
+  assert.equal(widget(fresh, 'video_codec').value, 'h264');
+  assert.equal(widget(fresh, 'audio_codec').value, 'flac');
+  for (const [container, video, audio] of [['mp4', 'h265', 'flac'], ['webm', 'vp9', 'opus']]) {
+    change(fresh, 'container', container);
+    change(fresh, 'video_codec', video);
+    change(fresh, 'audio_codec', audio);
+    const copy = new Node();
+    copy.configure(fresh.serialize());
+    assert.equal(widget(copy, 'container').value, container);
+    assert.equal(widget(copy, 'video_codec').value, video);
+    assert.equal(widget(copy, 'audio_codec').value, audio);
+  }
 });
