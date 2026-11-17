@@ -220,7 +220,7 @@ class Preview {
     this.canvas.style.cssText = "width:100%;border-radius:4px;";
     this.caption = document.createElement("div");
     this.caption.style.cssText = "font:11px sans-serif;opacity:.7;text-align:center;";
-    this.caption.textContent = "Mock spectrum · layout and glow preview";
+    this.caption.textContent = "Mock spectrum";
     this.root.append(this.canvas, this.caption);
     this.aspect = PLACEHOLDER[1] / PLACEHOLDER[0];
     this.widget = node.addDOMWidget("preview", "preview", this.root, {
