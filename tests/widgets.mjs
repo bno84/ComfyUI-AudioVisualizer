@@ -10,7 +10,7 @@ await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64
 delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
-  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', dot_spacing: 17,
+  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', stereo_mirror: false, stereo_gap: 80, dot_spacing: 17,
   color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fade_in: 1.5, fade_out: 2.5, fps: 60, start: 0, duration: 0,
   container: 'mp4', video_codec: 'h265', h265_crf: 18, h264_crf: 22, vp9_crf: 20, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 128, crf: -1,
@@ -42,13 +42,13 @@ const change = (node, name, value) => {
 test('three unlabeled groups, with dot spacing and codec controls beside their selector', () => {
   const node = new Node();
   assert.deepEqual(node.widgets.filter(w => !w.hidden).map(w => w.name), [
-    'enabled', 'filename_prefix', 'style', 'color', 'band_height', 'gain', 'glow', 'trail', 'vignette', 'fade_in', 'fade_out',
+    'enabled', 'filename_prefix', 'style', 'stereo_mirror', 'color', 'band_height', 'gain', 'glow', 'trail', 'vignette', 'fade_in', 'fade_out',
     '__separator_fps', 'fps', 'start', 'duration', '__separator_container',
     'container', 'video_codec', 'h265_crf', 'audio_codec',
   ]);
   change(node, 'style', 'dots');
   assert.equal(widget(node, 'dot_spacing').hidden, undefined);
-  assert.equal(node.widgets[node.widgets.indexOf(widget(node, 'style')) + 1].name, 'dot_spacing');
+  assert.ok(!widget(node, 'dot_spacing').hidden);
   change(node, 'audio_codec', 'aac');
   assert.equal(widget(node, 'aac_bitrate').value, 192);
   assert.equal(widget(node, 'aac_bitrate').hidden, undefined);
@@ -196,4 +196,23 @@ test('pre-WebM named workflows keep codec settings and default to MP4', () => {
   assert.equal(widget(node, 'container').value, 'mp4');
   assert.equal(widget(node, 'h265_crf').value, 25);
   assert.equal(widget(node, 'vp9_crf').value, 20);
+});
+
+ test('stereo controls migrate defaults and retain gap across style changes and reload', () => {
+  const node = new Node();
+  const order = Object.keys(initial).filter(n => !['stereo_mirror', 'stereo_gap'].includes(n));
+  node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order }, widgets_values: order.map(n => initial[n]) });
+  assert.equal(widget(node, 'stereo_mirror').value, false);
+  assert.equal(widget(node, 'stereo_gap').hidden, true);
+  change(node, 'stereo_mirror', true);
+  change(node, 'stereo_gap', 121);
+  assert.ok(!widget(node, 'stereo_gap').hidden);
+  change(node, 'style', '(none)');
+  assert.equal(widget(node, 'stereo_gap').hidden, true);
+  assert.equal(widget(node, 'stereo_mirror').hidden, true);
+  change(node, 'style', 'bars');
+  const copy = new Node();
+  copy.configure(node.serialize());
+  assert.deepEqual(values(copy), values(node));
+  assert.ok(!widget(copy, 'stereo_gap').hidden);
 });

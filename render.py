@@ -133,11 +133,13 @@ def _spectrum(style, width, band_h, dot, fps, level, rows=None):
     level scales the analysed audio only. showcqt clamps bar_v at 100, too little for quiet audio.
     rows overrides the mask's vertical resolution, for measuring.
     """
-    X, W, H = 0, width, band_h
+    X, W, H = 0, width - width % 2, band_h
     if style == "bars":     # 64 bars with 6px gaps, continuous height; ~1/8-octave bands
         # The final cell already supplies the right gap; inset only the left edge.
-        X, W = MARGIN, W - MARGIN
-        grid = f"lum='if(lt(mod(X,{W}/64),{W}/64-{MARGIN}),255,0)'"
+        margin = MARGIN if W >= 64 * (MARGIN + 1) else max(1, W // 192)
+        X, W = margin, W - margin
+        W -= W % 2  # showcqt requires an even width
+        grid = f"lum='if(lt(mod(X,{W}/64),{W}/64-{margin}),255,0)'"
         columns, q = 64, 12
         rows = rows or H
     else:                   # LED matrix; bands narrower than the dot spacing so a tone lights ~2-3 columns
@@ -205,8 +207,71 @@ def full_scale(audio, style, width, dot, fps, frames, on_frame=None):
     return 1.0  # silence: nothing to scale
 
 
+def _channel_audio(audio):
+    # Mono repeats; for multichannel audio use front left and front right.
+    return [_Audio(np.ascontiguousarray(audio.data[:, c:c+1]).tobytes(), audio.rate, 1)
+            for c in (0, min(1, audio.data.shape[1]-1))]
+
+
+class _MaskSource:
+    """Bounded audio analysis feeding a raster mask into the existing effects graph."""
+    def __init__(self, target, audio, style, width, height, dot, fps, level, stereo, gap):
+        self.target, self.style = target, style
+        self.width, self.height, self.stereo, self.gap = width, height, stereo, gap
+        self.parts = []
+        self.remaining = int(len(audio) / audio.rate * fps)
+        self.closed = False
+        w = (width-gap)//2 if stereo else width
+        for channel in (_channel_audio(audio) if stereo else [audio]):
+            graph = av.filter.Graph()
+            source = channel.source(graph)
+            x, actual_w, bands, grid, _ = _spectrum(style, w, height, dot, fps, level)
+            end = _chain(graph, source, *bands)
+            end = _chain(graph, end, ("scale", f"{actual_w}:{height}:flags=neighbor"))
+            black = graph.add("color", f"c=black:s={actual_w}x{height}:r={fps}")
+            grid_node = _chain(graph, black, ("format", "gray"), ("geq", grid))
+            blend = graph.add("blend", "all_mode=multiply")
+            end.link_to(blend, 0, 0)
+            grid_node.link_to(blend, 0, 1)
+            end = blend
+            sink = graph.add("buffersink")
+            end.link_to(sink)
+            graph.configure()
+            self.parts.append((graph, source, sink, channel, x, actual_w))
+
+    def push(self, frame):
+        if self.closed:
+            return
+        for _, source, _, audio, _, _ in self.parts:
+            source.push(None if frame is None else audio.frame(frame.pts))
+        while self.remaining:
+            masks, stamp = [], None
+            for _, _, sink, _, x, w in self.parts:
+                try:
+                    stamp = sink.pull()
+                except (av.error.BlockingIOError, av.error.EOFError):
+                    if frame is None:
+                        self.target.push(None)
+                        self.closed = True
+                    return
+                mask = stamp.to_ndarray(format="gray")
+                part = np.zeros((self.height, (self.width-self.gap)//2 if self.stereo else self.width), np.uint8)
+                part[:, x:x+w] = mask
+                masks.append(part)
+            result = np.zeros((self.height, self.width), np.uint8)
+            result[:, :masks[0].shape[1]] = masks[0]
+            if self.stereo:
+                result[:, -masks[1].shape[1]:] = masks[1][:, ::-1]
+            output = av.VideoFrame.from_ndarray(result, format="gray")
+            output.pts, output.time_base = stamp.pts, stamp.time_base
+            self.target.push(output)
+            self.remaining -= 1
+        self.target.push(None)
+        self.closed = True
+
+
 def _composition(pixels, width, height, audio, style, band_h, dot, fps, level, color,
-                 glow, trail, vignette, fade_in, fade_out):
+                 glow, trail, vignette, fade_in, fade_out, stereo_mirror=False, stereo_gap=0):
     graph = av.filter.Graph()
     image = av.VideoFrame.from_ndarray(np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3),
                                       format="rgb24")
@@ -218,15 +283,24 @@ def _composition(pixels, width, height, audio, style, band_h, dot, fps, level, c
     scene = _chain(graph, scene, ("loop", "loop=-1:size=1"), ("setpts", f"N/({fps}*TB)"))
     audio_source = None
     if style != "(none)":
-        audio_source = audio.source(graph)
-        x, w, bands, grid, _ = _spectrum(style, width, band_h, dot, fps, level)
-        band = _chain(graph, audio_source, *bands, ("scale", f"{w}:{band_h}:flags=neighbor"))
-        black = graph.add("color", f"c=black:s={w}x{band_h}:r={fps}")
-        grid = _chain(graph, black, ("format", "gray"), ("geq", grid))
-        blend = graph.add("blend", "all_mode=multiply")
-        band.link_to(blend, 0, 0)
-        grid.link_to(blend, 0, 1)
-        masks = _chain(graph, blend, ("lagfun", f"decay={trail}"), ("split", None))
+        if stereo_mirror:
+            x, w = 0, width
+            template = av.VideoFrame(width, band_h, "gray")
+            template.time_base = Fraction(1, fps)
+            mask_source = graph.add_buffer(template=template)
+            audio_source = _MaskSource(mask_source, audio, style, width, band_h, dot, fps,
+                                       level, stereo_mirror, stereo_gap)
+            masks = _chain(graph, mask_source, ("lagfun", f"decay={trail}"), ("split", None))
+        else:
+            audio_source = audio.source(graph)
+            x, w, bands, grid, _ = _spectrum(style, width, band_h, dot, fps, level)
+            band = _chain(graph, audio_source, *bands, ("scale", f"{w}:{band_h}:flags=neighbor"))
+            black = graph.add("color", f"c=black:s={w}x{band_h}:r={fps}")
+            grid = _chain(graph, black, ("format", "gray"), ("geq", grid))
+            blend = graph.add("blend", "all_mode=multiply")
+            band.link_to(blend, 0, 0)
+            grid.link_to(blend, 0, 1)
+            masks = _chain(graph, blend, ("lagfun", f"decay={trail}"), ("split", None))
         solid = graph.add("color", f"c={color}:s={w}x{band_h}:r={fps}")
         colors = _chain(graph, solid, ("format", "rgba"), ("split", None))
         sharp = graph.add("alphamerge")
@@ -289,7 +363,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
            dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=128,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
            band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE,
-           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=20):
+           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0):
     """Render MP4 or WebM using CPU library filters. Inputs remain rgb24 and interleaved f32le bytes.
 
     band_height is the band's fraction of image height (0.1 to 0.9). gain 1.0
@@ -318,6 +392,8 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     color = color.strip()
     band_h = 0
     if style != "(none)":
+        if not isinstance(stereo_gap, int) or stereo_gap < 0 or (stereo_mirror and (width-stereo_gap)//2 < 128):
+            raise ValueError("stereo_gap must leave at least 128 pixels per stereo half")
         if not COLOR.fullmatch(color):
             raise ValueError(f"color {color!r}: use 0xRRGGBB, #RRGGBB or an ffmpeg color name")
         band_h = 2 * round(height * band_height / 2)
@@ -373,10 +449,12 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     if on_frame:
         on_frame(0, total)
     # Height grows as level ** (2/3), so gain g needs g ** 1.5 times full scale.
-    level = (full_scale(audio, style, width, dot, fps, frames, measuring) * gain ** 1.5
+    analysis_width = (width-stereo_gap)//2 if stereo_mirror else width
+    analysis_audio = _channel_audio(audio) if stereo_mirror else [audio]
+    level = (min(full_scale(a, style, analysis_width, dot, fps, frames, measuring) for a in analysis_audio) * gain ** 1.5
              if style != "(none)" else 1.0)
     graph, sink, source = _composition(pixels, width, height, audio, style, band_h, dot, fps, level,
-                                        color, glow, trail, vignette, fade_in, fade_out)
+                                        color, glow, trail, vignette, fade_in, fade_out, stereo_mirror, stereo_gap)
     # Reserve a random sibling with normal output permissions, respecting the umask.
     # mkstemp's owner-only mode would survive os.replace and break shared outputs.
     # Close the fd before PyAV opens it, including on Windows.

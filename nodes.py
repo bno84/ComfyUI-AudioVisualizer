@@ -25,6 +25,8 @@ class AudioVisualizer:
                                                                     "output; image and audio aren't requested"}),
                 "filename_prefix": ("STRING", {"default": "video/song_visualizer"}),
                 "style": (list(R.STYLES), {"tooltip": "bars: 64 bars. dots: LED matrix. (none): still image and audio only"}),
+                "stereo_mirror": ("BOOLEAN", {"default": False, "tooltip": "Left/right channels mirrored horizontally; bass outside, treble toward the center. Mono repeats."}),
+                "stereo_gap": ("INT", {"default": 80, "min": 0, "max": 8192, "tooltip": "Center gap in pixels; each half needs at least 128 pixels."}),
                 "dot_spacing": ("INT", {"default": 17, "min": 4, "max": 64, "display": "slider",
                                         "tooltip": "Distance between LED dots in pixels; also scales their diameter"}),
                 "color": ("COLOR", {"default": "#9750c4", "tooltip": "bar color (#RRGGBB)"}),
@@ -94,7 +96,7 @@ class AudioVisualizer:
             video_codec="h265", opus_bitrate=128, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
             fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics="",
-            container="mp4", vp9_crf=20):
+            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=80):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -134,7 +136,7 @@ class AudioVisualizer:
                  start=start, duration=duration,
                  fps=fps, aac_bitrate=aac_bitrate, h264_crf=h264_crf, h265_crf=h265_crf, metadata=metadata, on_frame=on_frame,
                  band_height=band_height, vignette=vignette, fade_in=fade_in, fade_out=fade_out,
-                 container=container, vp9_crf=vp9_crf)
+                 container=container, vp9_crf=vp9_crf, stereo_mirror=stereo_mirror, stereo_gap=stereo_gap)
         return {"ui": {"images": [{"filename": file, "subfolder": subfolder, "type": "output"}], "animated": (True,)},
                 "result": (InputImpl.VideoFromFile(path),)}
 

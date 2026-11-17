@@ -39,7 +39,8 @@ export function updateWidgets(node) {
   const value = (name) => node.widgets?.find((w) => w.name === name)?.value;
   let changed = false;
   for (const [name, visible] of [
-    ...["color", "band_height", "gain", "glow", "trail"].map(name => [name, !["(none)", "none"].includes(value("style"))]),
+    ...["color", "band_height", "gain", "glow", "trail", "stereo_mirror"].map(name => [name, !["(none)", "none"].includes(value("style"))]),
+    ["stereo_gap", value("stereo_mirror") && !["(none)", "none"].includes(value("style"))],
     ["dot_spacing", value("style") === "dots"],
     ["crf", false],
     ["h264_crf", value("video_codec") === "h264"],

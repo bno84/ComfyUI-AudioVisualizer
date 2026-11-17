@@ -94,3 +94,13 @@ node --test tests/*.mjs
 
 Render tests use real PyAV filters and encoders and block subprocess rendering.
 CI runs them on Linux, Windows and macOS, including the minimum PyAV version.
+
+### Mirrored stereo
+
+Enable `stereo_mirror` independently of the graph style. The left channel is
+shown on the left, the right channel on the right, with bass at the outside
+edges and treble toward the center. `stereo_gap` sets the center gap in pixels
+(default 80); each half needs at least 128 pixels. Odd remaining widths add one
+pixel to the gap. Mono repeats on both sides; multichannel audio uses front
+left/right for visualization. Audio output retains every original channel.
+Both halves share normalization to preserve their relative levels.

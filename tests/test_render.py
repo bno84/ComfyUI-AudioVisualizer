@@ -274,6 +274,30 @@ class RenderTest(unittest.TestCase):
                 self.assertEqual(int(pixels[:, xs].max()), 0, "LED crosses a column boundary")
                 self.assertEqual(int(pixels[ys, :].max()), 0, "LED crosses a row boundary")
 
+    def test_stereo_geometry_and_channel_separation(self):
+        for style in ("bars", "dots"):
+            for channels in (1, 2):
+                with self.subTest(style=style, channels=channels):
+                    data = tone(.6, channels=channels)
+                    if channels == 2:
+                        data[:, 1] = 0
+                    audio = R._Audio(data.tobytes(), 48000, channels)
+                    graph, sink, source = R._composition(bytes(640*144*3), 640, 144,
+                        audio, style, 50, 12, 30, 64, "#ffffff", 0, 0, 0, 0, 0, True, 81)
+                    feed = R._Feed(audio, source)
+                    images = [feed.read(sink).to_ndarray(format="rgb24") for _ in range(18)]
+                    pixels = images[10]
+                    self.assertGreater(pixels[:, :279].max(), 20)
+                    self.assertEqual(pixels[:, 279:361].max(), 0)
+                    if channels == 1:
+                        npt.assert_array_equal(pixels[:, :279], pixels[:, -279:][:, ::-1])
+                    else:
+                        self.assertEqual(pixels[:, -279:].max(), 0)
+                    path, count = self.render(data=data, style=style, stereo_mirror=True,
+                                              stereo_gap=81, fade_in=0, fade_out=0)
+                    self.assertEqual(count, 18)
+                    npt.assert_allclose(audio_samples(path), data, atol=1.2e-7)
+
     def test_quality_controls_and_legacy_override(self):
         for options, expected in [
             ({}, 18), ({"codec": "h264"}, 22),
