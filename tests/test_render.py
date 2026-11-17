@@ -274,8 +274,8 @@ class RenderTest(unittest.TestCase):
                 self.assertEqual(int(pixels[:, xs].max()), 0, "LED crosses a column boundary")
                 self.assertEqual(int(pixels[ys, :].max()), 0, "LED crosses a row boundary")
 
-    def test_stereo_geometry_and_channel_separation(self):
-        for style in ("bars", "dots"):
+    def test_spline_and_stereo_geometry_and_channel_separation(self):
+        for style in ("bars", "dots", "spline"):
             for channels in (1, 2):
                 with self.subTest(style=style, channels=channels):
                     data = tone(.6, channels=channels)
@@ -291,12 +291,107 @@ class RenderTest(unittest.TestCase):
                     self.assertEqual(pixels[:, 279:361].max(), 0)
                     if channels == 1:
                         npt.assert_array_equal(pixels[:, :279], pixels[:, -279:][:, ::-1])
+                    elif style == "spline":
+                        right = pixels[:, -279:]
+                        self.assertGreater(right.max(), 20)
+                        self.assertLessEqual(np.count_nonzero(right.max(axis=(1, 2))), 3)
+                        self.assertGreater(np.count_nonzero(pixels[:, :279].max(axis=(1, 2))), 3)
                     else:
                         self.assertEqual(pixels[:, -279:].max(), 0)
                     path, count = self.render(data=data, style=style, stereo_mirror=True,
                                               stereo_gap=81, fade_in=0, fade_out=0)
                     self.assertEqual(count, 18)
                     npt.assert_allclose(audio_samples(path), data, atol=1.2e-7)
+
+    def test_spline_silence_and_interpolation_bounds(self):
+        silent = R._spline_mask(np.zeros((50, 64), np.uint8), 320, 50)
+        self.assertTrue(np.all(silent[:, 1:-1].max(axis=0) > 0))
+        self.assertEqual(silent[:-4].max(), 0)
+        heights = np.arange(64) % 16
+        mask = (np.arange(50)[:, None] >= 50-heights).astype(np.uint8)*255
+        curve = R._spline_mask(mask, 320, 50)
+        self.assertEqual(curve[:32].max(), 0)
+        self.assertGreater(curve.max(), 0)
+        with self.assertRaisesRegex(ValueError, "stereo_gap"):
+            self.render(stereo_mirror=True, stereo_gap=500)
+
+    def test_spline_zero_and_low_bands_stay_connected(self):
+        for thickness in (1, 2, 8, 32):
+            for heights in (np.zeros(64), np.arange(64) % 2,
+                            np.where(np.arange(64) % 8 == 0, 30, 0)):
+                mask = (np.arange(126)[:, None] >= 126-heights).astype(np.uint8)*255
+                curve = R._spline_mask(mask, 640, 126, thickness)
+                self.assertTrue(np.all(curve[:, 1:-1].max(axis=0) > 0))
+
+    def test_spline_floor_and_thickness(self):
+        for thickness in (1, 2, 8, 32):
+            for level in (0, 1, 25, 126):
+                mask = np.zeros((126, 64), np.uint8)
+                mask[-level:] = 255
+                curve = R._spline_mask(mask, 640, 126, thickness)
+                self.assertGreater(curve.max(), 0)
+                self.assertEqual(curve[0].max(), 0)
+                self.assertEqual(curve[-1].max(), 0)
+                self.assertEqual(curve[:, 0].max(), 0)
+                self.assertEqual(curve[:, -1].max(), 0)
+                column = curve[:, 320] / 255
+                self.assertAlmostEqual(column.sum(), thickness, delta=.1)
+        tiny = R._spline_mask(np.full((16, 64), 255, np.uint8), 128, 16, 32)
+        self.assertEqual(tiny[0].max(), 0)
+        self.assertEqual(tiny[-1].max(), 0)
+        path, count = self.render(style="spline", line_thickness=8, gain=.25,
+                                  stereo_mirror=True, stereo_gap=80)
+        self.assertEqual(count, 30)
+        for invalid in (0, 33, float("nan")):
+            with self.assertRaisesRegex(ValueError, "line_thickness"):
+                self.render(style="spline", line_thickness=invalid)
+
+    def test_stroke_width_is_perpendicular_to_horizontal_vertical_and_diagonal_lines(self):
+        horizontal = R._stroke_polyline(np.array([[20, 64], [108, 64]]), 128, 128, 8)
+        vertical = R._stroke_polyline(np.array([[64, 20], [64, 108]]), 128, 128, 8)
+        npt.assert_array_equal(horizontal, vertical.T)
+        offsets = np.linspace(-12, 12, 2401)
+        for slope in (0, 1, 4, 20):
+            direction = np.array([1., slope])
+            direction /= np.linalg.norm(direction)
+            normal = np.array([-direction[1], direction[0]])
+            points = np.array([64-direction*50, 64+direction*50])
+            for thickness in (2, 8, 16):
+                mask = R._stroke_polyline(points, 128, 128, thickness) / 255
+                xy = 64 + offsets[:, None]*normal
+                # Bilinear samples across the normal, away from the caps.
+                x, y = xy[:, 0], xy[:, 1]
+                ix, iy = x.astype(int), y.astype(int)
+                fx, fy = x-ix, y-iy
+                coverage = ((1-fx)*(1-fy)*mask[iy, ix] + fx*(1-fy)*mask[iy, ix+1]
+                            + (1-fx)*fy*mask[iy+1, ix] + fx*fy*mask[iy+1, ix+1])
+                self.assertAlmostEqual(np.trapezoid(coverage, offsets), thickness, delta=.35)
+
+    def test_spline_glow_uses_the_thick_stroke_mask(self):
+        def halo(thickness):
+            mask = R._stroke_polyline(np.array([[20, 64], [108, 64]]), 128, 128, thickness)
+            frame = av.VideoFrame.from_ndarray(mask, format="gray")
+            frame.time_base = R.Fraction(1, 30)
+            graph = av.filter.Graph()
+            source = graph.add_buffer(template=frame)
+            end = R._chain(graph, source, ("gblur", "sigma=5"))
+            sink = graph.add("buffersink")
+            end.link_to(sink)
+            graph.configure()
+            source.push(frame)
+            return sink.pull().to_ndarray(format="gray")
+        thin, thick = halo(2), halo(8)
+        self.assertGreater(thick.sum(), thin.sum())
+        self.assertGreater(thick[54, 64], thin[54, 64])
+
+    def test_spline_preview_reference_matches_renderer(self):
+        fixture = json.loads((Path(__file__).parent / "spline-reference.json").read_text())
+        for case in fixture["cases"]:
+            heights = np.array(case["heights"])
+            mask = (np.arange(case["height"])[:, None] >= case["height"]-heights).astype(np.uint8)*255
+            with patch.object(R, "_stroke_polyline", return_value=None) as stroke:
+                R._spline_mask(mask, case["width"], case["height"], case["thickness"])
+            npt.assert_allclose(stroke.call_args.args[0][case["indices"]], case["points"], atol=1e-9)
 
     def test_quality_controls_and_legacy_override(self):
         for options, expected in [

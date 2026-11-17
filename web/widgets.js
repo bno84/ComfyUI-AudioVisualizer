@@ -40,6 +40,7 @@ export function updateWidgets(node) {
   let changed = false;
   for (const [name, visible] of [
     ...["color", "band_height", "gain", "glow", "trail", "stereo_mirror"].map(name => [name, !["(none)", "none"].includes(value("style"))]),
+    ["line_thickness", value("style") === "spline"],
     ["stereo_gap", value("stereo_mirror") && !["(none)", "none"].includes(value("style"))],
     ["dot_spacing", value("style") === "dots"],
     ["crf", false],

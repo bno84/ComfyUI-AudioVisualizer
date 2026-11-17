@@ -17,7 +17,7 @@ MIN_BAND_H = 16
 MEASURE_H = 512              # rows for measuring the loudest bar height
 MARGIN = 6                   # gap between bars
 BOTTOM_MARGIN = 3
-STYLES = ("(none)", "bars", "dots")
+STYLES = ("(none)", "bars", "dots", "spline")
 DEFAULT_FADE_IN = 1.5
 DEFAULT_FADE_OUT = 2.5
 CONTAINERS = ("mp4", "webm")
@@ -134,10 +134,10 @@ def _spectrum(style, width, band_h, dot, fps, level, rows=None):
     rows overrides the mask's vertical resolution, for measuring.
     """
     X, W, H = 0, width - width % 2, band_h
-    if style == "bars":     # 64 bars with 6px gaps, continuous height; ~1/8-octave bands
+    if style in ("bars", "spline"):     # 64 bars with 6px gaps, continuous height; ~1/8-octave bands
         # The final cell already supplies the right gap; inset only the left edge.
         margin = MARGIN if W >= 64 * (MARGIN + 1) else max(1, W // 192)
-        X, W = margin, W - margin
+        X, W = (0, W) if style == "spline" else (margin, W - margin)
         W -= W % 2  # showcqt requires an even width
         grid = f"lum='if(lt(mod(X,{W}/64),{W}/64-{margin}),255,0)'"
         columns, q = 64, 12
@@ -207,6 +207,58 @@ def full_scale(audio, style, width, dot, fps, frames, on_frame=None):
     return 1.0  # silence: nothing to scale
 
 
+def _stroke_polyline(points, width, height, thickness):
+    """Antialiased round stroke using Euclidean distance to each line segment.
+
+    Work only inside segment bounds, keeping memory independent of curve length.
+    Union coverage before applying effects so joins cannot brighten or widen.
+    """
+    alpha = np.zeros((height, width), dtype=np.float32)
+    radius = thickness / 2 + .5
+    for first, last in zip(points[:-1], points[1:]):
+        x0, y0 = first
+        x1, y1 = last
+        left = max(0, math.ceil(min(x0, x1) - radius))
+        right = min(width, math.floor(max(x0, x1) + radius) + 1)
+        top = max(0, math.ceil(min(y0, y1) - radius))
+        bottom = min(height, math.floor(max(y0, y1) + radius) + 1)
+        if left >= right or top >= bottom:
+            continue
+        xx = np.arange(left, right)[None, :] - x0
+        yy = np.arange(top, bottom)[:, None] - y0
+        dx, dy = x1-x0, y1-y0
+        length2 = dx*dx + dy*dy
+        t = np.clip((xx*dx + yy*dy) / length2, 0, 1) if length2 else 0
+        distance = np.hypot(xx-t*dx, yy-t*dy)
+        coverage = np.clip(radius-distance, 0, 1)
+        region = alpha[top:bottom, left:right]
+        np.maximum(region, coverage, out=region)
+    return (alpha * 255).astype(np.uint8)
+
+
+def _spline_mask(mask, width, height, line_thickness=2.0):
+    """Shape-preserving cubic Hermite interpolation of 64 measured band heights."""
+    line_thickness = min(line_thickness, height - 2, width - 2)
+    values = (mask > 127).sum(axis=0).astype(float)
+    delta = np.diff(values)
+    slopes = np.zeros_like(values)
+    slopes[0], slopes[-1] = delta[0], delta[-1]
+    same = delta[:-1] * delta[1:] > 0
+    slopes[1:-1][same] = 2 * delta[:-1][same] * delta[1:][same] / (delta[:-1][same] + delta[1:][same])
+    # Half-pixel segments closely approximate the cubic while keeping the
+    # stroke's width perpendicular to the curve, including steep peaks.
+    inset = line_thickness / 2 + .5
+    pixel_x = np.linspace(inset, width-1-inset, max(2, width * 2))
+    x = np.linspace(0, len(values)-1, len(pixel_x))
+    i = np.minimum(x.astype(int), len(values)-2)
+    t = x-i
+    y = ((2*t**3-3*t**2+1)*values[i] + (t**3-2*t**2+t)*slopes[i]
+         + (-2*t**3+3*t**2)*values[i+1] + (t**3-t**2)*slopes[i+1])
+    centers = height - 1 - inset - np.clip(y / height, 0, 1) * (height - 1 - 2 * inset)
+    # Zero-height bands remain connected along the inset baseline.
+    return _stroke_polyline(np.column_stack((pixel_x, centers)), width, height, line_thickness)
+
+
 def _channel_audio(audio):
     # Mono repeats; for multichannel audio use front left and front right.
     return [_Audio(np.ascontiguousarray(audio.data[:, c:c+1]).tobytes(), audio.rate, 1)
@@ -215,8 +267,9 @@ def _channel_audio(audio):
 
 class _MaskSource:
     """Bounded audio analysis feeding a raster mask into the existing effects graph."""
-    def __init__(self, target, audio, style, width, height, dot, fps, level, stereo, gap):
+    def __init__(self, target, audio, style, width, height, dot, fps, level, stereo, gap, line_thickness=2.0):
         self.target, self.style = target, style
+        self.line_thickness = line_thickness
         self.width, self.height, self.stereo, self.gap = width, height, stereo, gap
         self.parts = []
         self.remaining = int(len(audio) / audio.rate * fps)
@@ -227,13 +280,14 @@ class _MaskSource:
             source = channel.source(graph)
             x, actual_w, bands, grid, _ = _spectrum(style, w, height, dot, fps, level)
             end = _chain(graph, source, *bands)
-            end = _chain(graph, end, ("scale", f"{actual_w}:{height}:flags=neighbor"))
-            black = graph.add("color", f"c=black:s={actual_w}x{height}:r={fps}")
-            grid_node = _chain(graph, black, ("format", "gray"), ("geq", grid))
-            blend = graph.add("blend", "all_mode=multiply")
-            end.link_to(blend, 0, 0)
-            grid_node.link_to(blend, 0, 1)
-            end = blend
+            if style != "spline":
+                end = _chain(graph, end, ("scale", f"{actual_w}:{height}:flags=neighbor"))
+                black = graph.add("color", f"c=black:s={actual_w}x{height}:r={fps}")
+                grid_node = _chain(graph, black, ("format", "gray"), ("geq", grid))
+                blend = graph.add("blend", "all_mode=multiply")
+                end.link_to(blend, 0, 0)
+                grid_node.link_to(blend, 0, 1)
+                end = blend
             sink = graph.add("buffersink")
             end.link_to(sink)
             graph.configure()
@@ -255,6 +309,8 @@ class _MaskSource:
                         self.closed = True
                     return
                 mask = stamp.to_ndarray(format="gray")
+                if self.style == "spline":
+                    mask = _spline_mask(mask, w, self.height, self.line_thickness)
                 part = np.zeros((self.height, (self.width-self.gap)//2 if self.stereo else self.width), np.uint8)
                 part[:, x:x+w] = mask
                 masks.append(part)
@@ -271,7 +327,7 @@ class _MaskSource:
 
 
 def _composition(pixels, width, height, audio, style, band_h, dot, fps, level, color,
-                 glow, trail, vignette, fade_in, fade_out, stereo_mirror=False, stereo_gap=0):
+                 glow, trail, vignette, fade_in, fade_out, stereo_mirror=False, stereo_gap=0, line_thickness=2.0):
     graph = av.filter.Graph()
     image = av.VideoFrame.from_ndarray(np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3),
                                       format="rgb24")
@@ -283,13 +339,13 @@ def _composition(pixels, width, height, audio, style, band_h, dot, fps, level, c
     scene = _chain(graph, scene, ("loop", "loop=-1:size=1"), ("setpts", f"N/({fps}*TB)"))
     audio_source = None
     if style != "(none)":
-        if stereo_mirror:
+        if stereo_mirror or style == "spline":
             x, w = 0, width
             template = av.VideoFrame(width, band_h, "gray")
             template.time_base = Fraction(1, fps)
             mask_source = graph.add_buffer(template=template)
             audio_source = _MaskSource(mask_source, audio, style, width, band_h, dot, fps,
-                                       level, stereo_mirror, stereo_gap)
+                                       level, stereo_mirror, stereo_gap, line_thickness)
             masks = _chain(graph, mask_source, ("lagfun", f"decay={trail}"), ("split", None))
         else:
             audio_source = audio.source(graph)
@@ -363,7 +419,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
            dot=17, gain=1.3, glow=0.0, trail=0.0, codec="h265", crf=-1, audio_codec="flac", audio_bitrate=128,
            start=0.0, duration=0.0, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18, metadata=None, on_frame=None,
            band_height=DEFAULT_BAND, vignette=DEFAULT_VIGNETTE,
-           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0):
+           fade_in=DEFAULT_FADE_IN, fade_out=DEFAULT_FADE_OUT, container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0):
     """Render MP4 or WebM using CPU library filters. Inputs remain rgb24 and interleaved f32le bytes.
 
     band_height is the band's fraction of image height (0.1 to 0.9). gain 1.0
@@ -392,6 +448,8 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     color = color.strip()
     band_h = 0
     if style != "(none)":
+        if style == "spline" and not 1 <= line_thickness <= 32:
+            raise ValueError("line_thickness must be 1 to 32 pixels")
         if not isinstance(stereo_gap, int) or stereo_gap < 0 or (stereo_mirror and (width-stereo_gap)//2 < 128):
             raise ValueError("stereo_gap must leave at least 128 pixels per stereo half")
         if not COLOR.fullmatch(color):
@@ -454,7 +512,7 @@ def render(pixels, width, height, samples, sample_rate, channels, output, *, sty
     level = (min(full_scale(a, style, analysis_width, dot, fps, frames, measuring) for a in analysis_audio) * gain ** 1.5
              if style != "(none)" else 1.0)
     graph, sink, source = _composition(pixels, width, height, audio, style, band_h, dot, fps, level,
-                                        color, glow, trail, vignette, fade_in, fade_out, stereo_mirror, stereo_gap)
+                                        color, glow, trail, vignette, fade_in, fade_out, stereo_mirror, stereo_gap, line_thickness)
     # Reserve a random sibling with normal output permissions, respecting the umask.
     # mkstemp's owner-only mode would survive os.replace and break shared outputs.
     # Close the fd before PyAV opens it, including on Windows.

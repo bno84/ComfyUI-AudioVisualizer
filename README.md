@@ -95,7 +95,16 @@ node --test tests/*.mjs
 Render tests use real PyAV filters and encoders and block subprocess rendering.
 CI runs them on Linux, Windows and macOS, including the minimum PyAV version.
 
-### Mirrored stereo
+### Mirrored stereo and spline graphs
+
+Choose `spline` for an antialiased spectrum line with shape-preserving cubic
+interpolation between 64 frequency bands. `line_thickness` sets the stroke width
+in output-image pixels (1–32, default 2), with room reserved inside the band so
+quiet lines and clipped peaks stay visible. Thickness is capped to fit very
+small bands. Thickness is measured perpendicular to the curve, with round
+joins and ends. Zero and quiet frequency bands stay connected along the
+bottom baseline, including during silence. The mock reflects this control.
+`bars` and `dots` remain available.
 
 Enable `stereo_mirror` independently of the graph style. The left channel is
 shown on the left, the right channel on the right, with bass at the outside
@@ -104,3 +113,10 @@ edges and treble toward the center. `stereo_gap` sets the center gap in pixels
 pixel to the gap. Mono repeats on both sides; multichannel audio uses front
 left/right for visualization. Audio output retains every original channel.
 Both halves share normalization to preserve their relative levels.
+
+Glow blurs the complete stroke mask, so thicker lines create broader and
+stronger halos. The blur radius stays fixed at sigma 5 output pixels;
+`glow` controls the halo opacity.
+
+Existing trail and glow controls apply to all styles. Their decay, blur and
+color behavior are unchanged. Existing workflows default to mirroring off.

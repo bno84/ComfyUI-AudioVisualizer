@@ -10,7 +10,7 @@ await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64
 delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
-  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', stereo_mirror: false, stereo_gap: 80, dot_spacing: 17,
+  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', line_thickness: 2, stereo_mirror: false, stereo_gap: 80, dot_spacing: 17,
   color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fade_in: 1.5, fade_out: 2.5, fps: 60, start: 0, duration: 0,
   container: 'mp4', video_codec: 'h265', h265_crf: 18, h264_crf: 22, vp9_crf: 20, audio_codec: 'flac',
   aac_bitrate: 192, opus_bitrate: 128, crf: -1,
@@ -210,9 +210,30 @@ test('pre-WebM named workflows keep codec settings and default to MP4', () => {
   change(node, 'style', '(none)');
   assert.equal(widget(node, 'stereo_gap').hidden, true);
   assert.equal(widget(node, 'stereo_mirror').hidden, true);
-  change(node, 'style', 'bars');
+  change(node, 'style', 'spline');
   const copy = new Node();
   copy.configure(node.serialize());
   assert.deepEqual(values(copy), values(node));
   assert.ok(!widget(copy, 'stereo_gap').hidden);
+});
+
+
+test('spline thickness defaults on migration and survives switching and reload', () => {
+  const node = new Node();
+  const order = Object.keys(initial).filter(n => n !== 'line_thickness');
+  node.configure({ properties: { sdcpp_audio_visualizer_widget_order: order }, widgets_values: order.map(n => initial[n]) });
+  assert.equal(widget(node, 'line_thickness').value, 2);
+  assert.equal(widget(node, 'line_thickness').hidden, true);
+  change(node, 'style', 'spline');
+  assert.ok(!widget(node, 'line_thickness').hidden);
+  change(node, 'line_thickness', 8);
+  for (const style of ['bars', 'dots', '(none)']) {
+    change(node, 'style', style);
+    assert.equal(widget(node, 'line_thickness').hidden, true);
+  }
+  change(node, 'style', 'spline');
+  const copy = new Node();
+  copy.configure(node.serialize());
+  assert.equal(widget(copy, 'line_thickness').value, 8);
+  assert.ok(!widget(copy, 'line_thickness').hidden);
 });
