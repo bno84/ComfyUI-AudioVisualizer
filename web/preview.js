@@ -121,7 +121,7 @@ function draw(canvas, node, still) {
   const [width, height] = still ? [still.naturalWidth, still.naturalHeight] : PLACEHOLDER;
   const style = value(node, "style") ?? "bars";
   const options = { width, height, style, bandHeight: value(node, "band_height") ?? 0.35, dot: value(node, "dot_spacing") ?? 17 };
-  const panels = spectrumPanels(options, value(node, "stereo_mirror") ?? false, value(node, "stereo_gap") ?? 80);
+  const panels = spectrumPanels(options, value(node, "stereo_mirror") ?? false, value(node, "stereo_gap") ?? 0);
   const band = panels[0]?.band;
   const scale = canvas.width / width;
   const g = canvas.getContext("2d");

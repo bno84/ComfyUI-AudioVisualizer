@@ -10,10 +10,10 @@ await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64
 delete globalThis.__audioVisualizerTestApp;
 
 const initial = {
-  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', line_thickness: 2, stereo_mirror: false, stereo_gap: 80, dot_spacing: 17,
+  enabled: true, filename_prefix: 'video/song_visualizer', style: 'bars', line_thickness: 2, stereo_mirror: false, stereo_gap: 0, dot_spacing: 17,
   color: '#9750c4', band_height: 0.35, gain: 1.3, glow: 0, trail: 0, vignette: 0, fade_in: 1.5, fade_out: 2.5, fps: 60, start: 0, duration: 0,
   container: 'mp4', video_codec: 'h265', h265_crf: 18, h264_crf: 22, vp9_crf: 20, audio_codec: 'flac',
-  aac_bitrate: 192, opus_bitrate: 128, crf: -1,
+  aac_bitrate: 192, opus_bitrate: 192, crf: -1,
 };
 class Node {
   constructor() {
@@ -55,7 +55,7 @@ test('three unlabeled groups, with dot spacing and codec controls beside their s
   change(node, 'aac_bitrate', 256);
   change(node, 'audio_codec', 'opus');
   assert.equal(widget(node, 'aac_bitrate').hidden, true);
-  assert.equal(widget(node, 'opus_bitrate').value, 128);
+  assert.equal(widget(node, 'opus_bitrate').value, 192);
   change(node, 'audio_codec', 'aac');
   assert.equal(widget(node, 'aac_bitrate').value, 256);
 });
@@ -236,4 +236,17 @@ test('spline thickness defaults on migration and survives switching and reload',
   copy.configure(node.serialize());
   assert.equal(widget(copy, 'line_thickness').value, 8);
   assert.ok(!widget(copy, 'line_thickness').hidden);
+});
+
+
+test('new defaults preserve explicit gap and bitrate from existing workflows', () => {
+  const node = new Node();
+  assert.equal(widget(node, 'stereo_gap').value, 0);
+  assert.equal(widget(node, 'opus_bitrate').value, 192);
+  change(node, 'stereo_gap', 80);
+  change(node, 'opus_bitrate', 128);
+  const copy = new Node();
+  copy.configure(node.serialize());
+  assert.equal(widget(copy, 'stereo_gap').value, 80);
+  assert.equal(widget(copy, 'opus_bitrate').value, 128);
 });

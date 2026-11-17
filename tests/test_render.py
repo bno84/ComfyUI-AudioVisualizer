@@ -406,7 +406,7 @@ class RenderTest(unittest.TestCase):
         for options, expected in [
             ({"audio_codec": "aac"}, 192),
             ({"audio_codec": "aac", "aac_bitrate": 256, "audio_bitrate": 64}, 256),
-            ({"audio_codec": "opus", "aac_bitrate": 256}, 128),
+            ({"audio_codec": "opus", "aac_bitrate": 256}, 192),
         ]:
             with self.subTest(options=options), patch.object(R, "_streams", wraps=R._streams) as streams:
                 self.render(width=16, height=16, style="(none)", data=tone(.1), **options)

@@ -60,7 +60,7 @@ such as Dragon Player, show the title; VLC does not.
 - **Timing:** 30/60 FPS, start, and duration in seconds. Duration 0 uses the
   rest of the audio.
 - **Codecs:** H.265 (CRF 18), H.264 (CRF 22), or VP9 (CRF 20, libvpx-vp9); FLAC (default), AAC
-  (192 kbps), or Opus (128 kbps). Each codec keeps its own settings.
+  (192 kbps), or Opus (192 kbps). Each codec keeps its own settings.
 - **Container:** MP4 (default, FastStart) or WebM. Choose VP9 + Opus for WebM;
   other combinations are rejected before rendering. WebM writes its seek index at the front.
 
@@ -109,7 +109,7 @@ bottom baseline, including during silence. The mock reflects this control.
 Enable `stereo_mirror` independently of the graph style. The left channel is
 shown on the left, the right channel on the right, with bass at the outside
 edges and treble toward the center. `stereo_gap` sets the center gap in pixels
-(default 80); each half needs at least 128 pixels. Odd remaining widths add one
+(default 0); each half needs at least 128 pixels. Odd remaining widths add one
 pixel to the gap. Mono repeats on both sides; multichannel audio uses front
 left/right for visualization. Audio output retains every original channel.
 Both halves share normalization to preserve their relative levels.

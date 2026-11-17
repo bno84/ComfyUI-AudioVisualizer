@@ -27,7 +27,7 @@ class AudioVisualizer:
                 "style": (list(R.STYLES), {"tooltip": "bars: 64 bars. dots: LED matrix. spline: smooth spectrum line. (none): still image and audio only"}),
                 "line_thickness": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 32.0, "step": 0.5, "tooltip": "Spline stroke thickness in output-image pixels."}),
                 "stereo_mirror": ("BOOLEAN", {"default": False, "tooltip": "Left/right channels mirrored horizontally; bass outside, treble toward the center. Mono repeats."}),
-                "stereo_gap": ("INT", {"default": 80, "min": 0, "max": 8192, "tooltip": "Center gap in pixels; each half needs at least 128 pixels."}),
+                "stereo_gap": ("INT", {"default": 0, "min": 0, "max": 8192, "tooltip": "Center gap in pixels; each half needs at least 128 pixels."}),
                 "dot_spacing": ("INT", {"default": 17, "min": 4, "max": 64, "display": "slider",
                                         "tooltip": "Distance between LED dots in pixels; also scales their diameter"}),
                 "color": ("COLOR", {"default": "#9750c4", "tooltip": "bar color (#RRGGBB)"}),
@@ -66,7 +66,7 @@ class AudioVisualizer:
                                   "tooltip": "FLAC: lossless 24-bit. AAC / Opus: adjustable bitrate."}),
                 "aac_bitrate": ("INT", {"default": 192, "min": 32, "max": 512,
                                       "tooltip": "AAC bitrate in kbit/s"}),
-                "opus_bitrate": ("INT", {"default": 128, "min": 32, "max": 512,
+                "opus_bitrate": ("INT", {"default": 192, "min": 32, "max": 512,
                                         "tooltip": "Opus bitrate in kbit/s"}),
                 "crf": ("INT", {"default": -1, "min": -1, "max": 51,
                                 "tooltip": "Legacy workflow CRF; migrated to the selected codec control"}),
@@ -94,10 +94,10 @@ class AudioVisualizer:
 
     def run(self, image, audio, enabled, filename_prefix, style, gain, color, glow, trail, crf, audio_codec,
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
-            video_codec="h265", opus_bitrate=128, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
+            video_codec="h265", opus_bitrate=192, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
             fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics="",
-            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=80, line_thickness=2.0):
+            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
