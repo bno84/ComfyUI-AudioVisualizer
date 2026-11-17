@@ -11,13 +11,47 @@ const PLACEHOLDER = [1280, 720];
 // The band in image pixels, as render.py lays it out.
 export function bandLayout({ width, height, bandHeight, style, dot }) {
   if (["(none)", "none"].includes(style)) return null;
+  width -= width % 2;
   const h = 2 * Math.round((height * bandHeight) / 2);   // showcqt needs an even height
   const y = height - h - BOTTOM_MARGIN;
   if (style === "dots") {
     const columns = Math.floor(width / dot), rows = Math.floor(h / dot);
     return { x: 0, y, w: width, h, columns, rows, cell: width / columns, rowHeight: h / rows, radius: dot * 0.4 };
   }
-  return { x: MARGIN, y, w: width - MARGIN, h, columns: 64, rows: 0, cell: (width - MARGIN) / 64 };
+  const margin = style === "spline" ? 0 : width >= 64 * (MARGIN + 1) ? MARGIN : Math.max(1, Math.floor(width / 192));
+  const w = width - margin - ((width - margin) % 2);
+  return { x: margin, y, w, h, columns: 64, rows: 0, cell: w / 64 };
+}
+
+export const PREVIEW_CONTROLS = ["style", "band_height", "dot_spacing", "color", "glow", "gain", "vignette", "stereo_mirror", "stereo_gap", "line_thickness"];
+
+export function spectrumPanels(options, mirrored, gap) {
+  if (!mirrored) return [{ band: bandLayout(options), origin: 0, direction: 1 }];
+  const half = Math.floor((options.width - gap) / 2);
+  if (half < 128) return []; // The renderer rejects this configuration.
+  const band = bandLayout({ ...options, width: half });
+  return [{ band, origin: 0, direction: 1 }, { band, origin: options.width, direction: -1 }];
+}
+
+// The same shape-preserving cubic Hermite slopes as render.py's spline mask.
+export function splineSegments(levels, width, height, lineThickness = 2) {
+  lineThickness = Math.min(lineThickness, height - 2, width - 2);
+  const inset = Math.min(lineThickness / 2 + .5, (height - 1) / 2, (width - 1) / 2);
+  const floor = height - 1 - inset;
+  // The renderer interpolates integer mask heights, not continuous levels.
+  const values = levels.map(v => Math.round(Math.min(1, Math.max(0, v)) * height) / height * (height - 1 - 2 * inset));
+  const delta = values.slice(1).map((v, i) => v - values[i]);
+  const slopes = values.map((_, i) => {
+    if (i === 0) return delta[0];
+    if (i === values.length - 1) return delta.at(-1);
+    const a = delta[i - 1], b = delta[i];
+    return a * b > 0 ? 2 * a * b / (a + b) : 0;
+  });
+  const step = (width - 1 - 2 * inset) / (values.length - 1);
+  return delta.map((_, i) => [inset + i * step, floor - values[i],
+    inset + (i + 1/3) * step, floor - values[i] - slopes[i]/3,
+    inset + (i + 2/3) * step, floor - values[i+1] + slopes[i+1]/3,
+    inset + (i + 1) * step, floor - values[i+1]]);
 }
 
 // FFmpeg vf_vignette.c, default center/aspect and the renderer's PI/2 * strength.
@@ -86,9 +120,9 @@ function value(node, name) {
 function draw(canvas, node, still) {
   const [width, height] = still ? [still.naturalWidth, still.naturalHeight] : PLACEHOLDER;
   const style = value(node, "style") ?? "bars";
-  const band = bandLayout({
-    width, height, style, bandHeight: value(node, "band_height") ?? 0.35, dot: value(node, "dot_spacing") ?? 17,
-  });
+  const options = { width, height, style, bandHeight: value(node, "band_height") ?? 0.35, dot: value(node, "dot_spacing") ?? 17 };
+  const panels = spectrumPanels(options, value(node, "stereo_mirror") ?? false, value(node, "stereo_gap") ?? 80);
+  const band = panels[0]?.band;
   const scale = canvas.width / width;
   const g = canvas.getContext("2d");
   g.save();
@@ -108,51 +142,71 @@ function draw(canvas, node, still) {
 
   if (!band) {
     g.restore();
-    return { width, height, band };
+    return { width, height, band: band ?? null, panels };
   }
 
-  g.translate(band.x * scale, band.y * scale);
-  g.scale(scale, scale);
-  g.setLineDash([6 / scale, 6 / scale]);
-  g.strokeStyle = "rgba(255,255,255,0.35)";
-  g.lineWidth = 1 / scale;
-  g.strokeRect(0, 0, band.w, band.h);
-  g.setLineDash([]);
-
-  const color = value(node, "color") ?? "#9750c4";
-  const glow = value(node, "glow") ?? 0;
-  g.fillStyle = color;
-  g.globalAlpha = 0.9;
-  if (glow > 0) {
-    g.shadowColor = color;
-    g.shadowBlur = 10 * glow * scale;
-  }
-  const levels = mockLevels(band.columns, value(node, "gain") ?? 1.3);
-  levels.forEach((level, column) => {
-    const shown = Math.min(level, 1);
-    if (style === "dots") {
-      const lit = Math.round(shown * band.rows);
-      for (let row = 0; row < lit; row++) {
-        // geq uses pixel indices; Canvas uses pixel edges, so its centers
-        // are half a pixel further along. Fade inward over one source pixel
-        // to match render.py's clip(radius - distance, 0, 1) mask.
-        const x = (column + 0.5) * band.cell;
-        const y = band.h - (row + 0.5) * band.rowHeight;
-        const edge = g.createRadialGradient(x, y, Math.max(0, band.radius - 1), x, y, band.radius);
-        edge.addColorStop(0, color);
-        edge.addColorStop(1, "transparent");
-        g.fillStyle = edge;
+  for (const { band, origin, direction } of panels) {
+    g.save();
+    g.translate(origin * scale, 0);
+    g.scale(direction, 1);
+    g.translate(band.x * scale, band.y * scale);
+    g.scale(scale, scale);
+    const color = value(node, "color") ?? "#9750c4";
+    const glow = value(node, "glow") ?? 0;
+    // FFmpeg blurs the mask at sigma=5, independent of halo opacity.
+    // Canvas filters use canvas pixels, so scale the radius with the image.
+    g.beginPath();
+    g.rect(0, 0, band.w, band.h);
+    g.clip();
+    const paint = () => {
+      g.fillStyle = color;
+      const levels = mockLevels(band.columns, value(node, "gain") ?? 1.3);
+      if (style === "spline") {
+        g.strokeStyle = color;
+        g.lineWidth = Math.min(value(node, "line_thickness") ?? 2, band.h - 2, band.w - 2);
+        g.lineCap = "round";
+        g.lineJoin = "round";
         g.beginPath();
-        g.arc(x, y, band.radius, 0, 2 * Math.PI);
-        g.fill();
-      }
-    } else {
-      const top = band.h * (1 - shown);
-      g.fillRect(column * band.cell, top, band.cell - MARGIN, band.h - top);
+        const segments = splineSegments(levels, band.w, band.h, g.lineWidth);
+        g.moveTo(segments[0][0], segments[0][1]);
+        for (const segment of segments) g.bezierCurveTo(...segment.slice(2));
+        g.stroke();
+      } else levels.forEach((level, column) => {
+        const shown = Math.min(level, 1);
+        if (style === "dots") {
+          const lit = Math.round(shown * band.rows);
+          for (let row = 0; row < lit; row++) {
+            // geq uses pixel indices; Canvas uses pixel edges, so its centers
+            // are half a pixel further along. Fade inward over one source pixel
+            // to match render.py's clip(radius - distance, 0, 1) mask.
+            const x = (column + 0.5) * band.cell;
+            const y = band.h - (row + 0.5) * band.rowHeight;
+            const edge = g.createRadialGradient(x, y, Math.max(0, band.radius - 1), x, y, band.radius);
+            edge.addColorStop(0, color);
+            edge.addColorStop(1, "transparent");
+            g.fillStyle = edge;
+            g.beginPath();
+            g.arc(x, y, band.radius, 0, 2 * Math.PI);
+            g.fill();
+          }
+        } else {
+          const top = band.h * (1 - shown);
+          g.fillRect(column * band.cell, top, band.cell - band.x, band.h - top);
+        }
+      });
+    };
+    if (glow > 0) {
+      g.filter = `blur(${5 * scale}px)`;
+      g.globalAlpha = glow;
+      paint();
     }
-  });
+    g.filter = "none";
+    g.globalAlpha = 0.9;
+    paint();
+    g.restore();
+  }
   g.restore();
-  return { width, height, band };
+  return { width, height, band: band ?? null, panels };
 }
 
 class Preview {
@@ -164,7 +218,7 @@ class Preview {
     this.canvas.style.cssText = "width:100%;border-radius:4px;";
     this.caption = document.createElement("div");
     this.caption.style.cssText = "font:11px sans-serif;opacity:.7;text-align:center;";
-    this.caption.textContent = "Mock preview";
+    this.caption.textContent = "Mock spectrum · layout and glow preview";
     this.root.append(this.canvas, this.caption);
     this.aspect = PLACEHOLDER[1] / PLACEHOLDER[0];
     this.widget = node.addDOMWidget("preview", "preview", this.root, {
@@ -182,7 +236,7 @@ class Preview {
   // Both renderers share this check; repaint only when something changed.
   update() {
     const still = stillOf(this.node);
-    const names = ["style", "band_height", "dot_spacing", "color", "glow", "gain", "vignette"];
+    const names = PREVIEW_CONTROLS;
     const width = Math.round(this.canvas.clientWidth * devicePixelRatio);
     const key = JSON.stringify([still?.src, width, names.map((n) => value(this.node, n))]);
     if (key === this.key || !width) return;

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const source = (await readFile(new URL('../web/preview.js', import.meta.url), 'utf8'))
   .replace('function draw(', 'export function draw(')
   .replace('import { app } from "../../scripts/app.js";', 'const app = { registerExtension() {} };');
-const { bandLayout, mockLevels, draw, vignetteFactor } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { bandLayout, mockLevels, draw, vignetteFactor, spectrumPanels, splineSegments, PREVIEW_CONTROLS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('the band sits where render.py puts it', () => {
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.16, style: 'bars', dot: 12 }),
@@ -18,7 +18,7 @@ test('dots preview centers complete circles in the stretched mask cells', () => 
   const arcs = [], gradients = [];
   const canvas = { width: 572, height: 778, getContext() { return {
     save() {}, restore() {}, clearRect() {}, drawImage() {}, translate() {}, scale() {},
-    setLineDash() {}, strokeRect() {}, beginPath() {}, fill() {},
+    setLineDash() {}, strokeRect() {}, rect() {}, clip() {}, beginPath() {}, fill() {},
     arc(...args) { arcs.push(args); },
     createRadialGradient(...args) {
       const stops = [];
@@ -127,5 +127,137 @@ test('vignette mask caches source dimensions, preview resolution and strength', 
     assert.deepEqual(drawn, [still]);
   } finally {
     globalThis.document = previousDocument;
+  }
+});
+
+
+test('stereo panels match renderer halves and odd-width center gaps for every style', () => {
+  for (const style of ['bars', 'dots', 'spline']) {
+    const options = { width: 640, height: 360, bandHeight: .35, dot: 17, style };
+    for (const gap of [0, 80, 81, 200]) {
+      const panels = spectrumPanels(options, true, gap);
+      const half = Math.floor((640-gap)/2);
+      assert.deepEqual(panels.map(p => [p.origin, p.direction]), [[0, 1], [640, -1]]);
+      assert.deepEqual(panels[0].band, bandLayout({ ...options, width: half }));
+      assert.deepEqual(panels[0].band, panels[1].band);
+      const inner = panels[0].band.x + panels[0].band.w;
+      assert.ok(640 - 2 * inner >= gap);
+    }
+    assert.equal(spectrumPanels(options, false, 81).length, 1);
+    assert.deepEqual(spectrumPanels(options, true, 500), []);
+  }
+  assert.ok(PREVIEW_CONTROLS.includes('stereo_mirror'));
+  assert.ok(PREVIEW_CONTROLS.includes('stereo_gap'));
+});
+
+test('mock draws two reflected spectra and switches spline to cubic curves', () => {
+  for (const style of ['bars', 'dots', 'spline']) {
+    const transforms = [], curves = [], bars = [], arcs = [];
+    const context = {
+      save() {}, restore() {}, clearRect() {}, drawImage() {},
+      translate(...args) { transforms.push(['translate', ...args]); },
+      scale(...args) { transforms.push(['scale', ...args]); },
+      setLineDash() {}, strokeRect() {}, rect() {}, clip() {}, beginPath() {}, fill() {}, moveTo() {}, stroke() {},
+      fillRect(...args) { bars.push(args); },
+      bezierCurveTo(...args) { curves.push(args); },
+      arc(...args) { arcs.push(args); },
+      createRadialGradient() { return { addColorStop() {} }; },
+    };
+    const canvas = { width: 640, height: 360, getContext() { return context; } };
+    const node = { widgets: Object.entries({ style, stereo_mirror: true, stereo_gap: 81 })
+      .map(([name, value]) => ({ name, value })) };
+    const result = draw(canvas, node, { naturalWidth: 640, naturalHeight: 360 });
+    assert.equal(result.panels.length, 2);
+    assert.ok(transforms.some(t => JSON.stringify(t) === JSON.stringify(['translate', 640, 0])));
+    assert.ok(transforms.some(t => JSON.stringify(t) === JSON.stringify(['scale', -1, 1])));
+    if (style === 'spline') {
+      assert.equal(curves.length, 126);
+      assert.equal(context.lineCap, 'round');
+      assert.equal(context.lineJoin, 'round');
+      assert.equal(bars.length, 0);
+      assert.equal(arcs.length, 0);
+      assert.deepEqual(curves.slice(0, 63), curves.slice(63));
+    } else if (style === 'bars') assert.equal(bars.length, 128);
+    else assert.ok(arcs.length > 0);
+  }
+});
+
+test('spline mock uses bounded shape-preserving control points', () => {
+  const segments = splineSegments([0, .5, 1, .5, 0], 401, 101);
+  assert.deepEqual(segments[0].slice(0, 2), [1.5, 98.5]);
+  assert.deepEqual(segments.at(-1).slice(-2), [398.5, 98.5]);
+  assert.equal(segments[1][5], 1.5); // zero slope at the peak
+  assert.equal(segments[2][3], 1.5);
+  for (const segment of segments) {
+    assert.ok(segment.every(Number.isFinite));
+    assert.ok(segment.filter((_, i) => i % 2).every(y => y >= 0 && y <= 100));
+  }
+});
+
+
+test('quiet and full-scale splines leave room for the entire stroke', () => {
+  assert.ok(PREVIEW_CONTROLS.includes('line_thickness'));
+  for (const thickness of [1, 2, 8, 32]) {
+    for (const gain of [0, .001, .25, 1, 2]) {
+      const segments = splineSegments(mockLevels(64, gain), 640, 126, thickness);
+      for (const segment of segments) {
+        for (let i = 0; i < segment.length; i += 2) {
+          assert.ok(segment[i] - thickness/2 >= 0);
+          assert.ok(segment[i] + thickness/2 <= 639);
+          assert.ok(segment[i+1] - thickness/2 >= 0);
+          assert.ok(segment[i+1] + thickness/2 <= 125);
+        }
+      }
+    }
+  }
+});
+
+
+test('silent spline mock remains a continuous bottomed-out line', () => {
+  for (const thickness of [1, 2, 8, 32]) {
+    const segments = splineSegments(Array(64).fill(0), 640, 126, thickness);
+    const floor = 125 - thickness/2 - .5;
+    for (const [i, segment] of segments.entries()) {
+      assert.ok(segment.filter((_, index) => index % 2).every(y => y === floor));
+      if (i) assert.deepEqual(segment.slice(0, 2), segments[i-1].slice(-2));
+    }
+  }
+});
+
+
+test('glow uses a fixed source-pixel blur and independent opacity before sharp stroke', () => {
+  for (const width of [320, 640]) {
+    for (const glow of [.2, .8]) {
+      const passes = [], guides = [];
+      const context = {
+        save() {}, restore() {}, clearRect() {}, drawImage() {}, translate() {}, scale() {},
+        beginPath() {}, rect() {}, clip() {}, moveTo() {}, bezierCurveTo() {},
+        strokeRect() { guides.push(true); },
+        stroke() { passes.push([this.filter, this.globalAlpha, this.lineWidth]); },
+      };
+      const canvas = { width, height: width/2, getContext() { return context; } };
+      const node = { widgets: Object.entries({ style: 'spline', glow, line_thickness: 8 })
+        .map(([name, value]) => ({ name, value })) };
+      draw(canvas, node, { naturalWidth: 1280, naturalHeight: 640 });
+      assert.deepEqual(passes, [[`blur(${5*width/1280}px)`, glow, 8], ['none', .9, 8]]);
+      assert.deepEqual(guides, []);
+    }
+  }
+});
+
+
+const splineReference = JSON.parse(await readFile(new URL('./spline-reference.json', import.meta.url), 'utf8'));
+test('mock spline matches renderer centerlines at clipped peaks and near-zero valleys', () => {
+  for (const c of splineReference.cases) {
+    const segments = splineSegments(c.heights.map(h => h/c.height), c.width, c.height, c.thickness);
+    c.indices.forEach((index, n) => {
+      const position = index/(2*c.width-1)*(c.heights.length-1);
+      const i = Math.min(Math.floor(position), segments.length-1), t = position-i;
+      const segment = segments[i];
+      const cubic = axis => (1-t)**3*segment[axis] + 3*(1-t)**2*t*segment[axis+2]
+        + 3*(1-t)*t*t*segment[axis+4] + t**3*segment[axis+6];
+      assert.ok(Math.abs(cubic(0)-c.points[n][0]) < 1e-9);
+      assert.ok(Math.abs(cubic(1)-c.points[n][1]) < 1e-9);
+    });
   }
 });
