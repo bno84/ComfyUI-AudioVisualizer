@@ -16,5 +16,8 @@ Keep the selected-style capability checks and chunked feeding when changing the 
 Check widget migration, save/reload, conditional controls, and separator widths
 when changing the frontend. Keep separators out of workflow and API values.
 
+For releases, push main and wait for CI to pass on the exact commit before
+creating the release tag. Push the tag separately after those checks pass.
+
 Publishing and remote pushes require user authorization. Local development
 does not require or access Registry tokens.
