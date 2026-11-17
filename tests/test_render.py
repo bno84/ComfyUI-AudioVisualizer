@@ -274,6 +274,20 @@ class RenderTest(unittest.TestCase):
                 self.assertEqual(int(pixels[:, xs].max()), 0, "LED crosses a column boundary")
                 self.assertEqual(int(pixels[ys, :].max()), 0, "LED crosses a row boundary")
 
+    def test_dot_preview_reference_matches_rendered_grid(self):
+        fixture = json.loads((Path(__file__).parent / "dots-reference.json").read_text())
+        for case in fixture["cases"]:
+            _, width, _, grid, _ = R._spectrum("dots", case["width"], case["height"], case["dot"], 30, 1)
+            graph = av.filter.Graph()
+            source = graph.add("color", f"black:s={width}x{case['height']}:r=30")
+            end = R._chain(graph, source, ("format", "gray"), ("geq", grid))
+            sink = graph.add("buffersink")
+            end.link_to(sink)
+            graph.configure()
+            pixels = sink.pull().to_ndarray(format="gray")
+            for x, y, expected in case["samples"]:
+                self.assertAlmostEqual(int(pixels[y, x]), expected, delta=1)
+
     def test_spline_and_stereo_geometry_and_channel_separation(self):
         for style in ("bars", "dots", "spline"):
             for channels in (1, 2):

@@ -261,3 +261,22 @@ test('mock spline matches renderer centerlines at clipped peaks and near-zero va
     });
   }
 });
+
+
+const dotsReference = JSON.parse(await readFile(new URL('./dots-reference.json', import.meta.url), 'utf8'));
+test('mock dot diameter and pitch agree with actual FFmpeg grid samples, including stereo halves', () => {
+  for (const c of dotsReference.cases) {
+    const band = bandLayout({ width: c.width, height: c.height*2, bandHeight: .5, style: 'dots', dot: c.dot });
+    assert.equal(band.w, c.actual_width);
+    assert.equal(band.columns, c.columns);
+    assert.equal(band.rows, c.rows);
+    for (const [x, y, expected] of c.samples) {
+      // Canvas gradients are centered on pixel edges; FFmpeg samples pixel centers.
+      const cx = (Math.floor((x+.5)/band.cell)+.5)*band.cell;
+      const cy = (Math.floor((y+.5)/band.rowHeight)+.5)*band.rowHeight;
+      const alpha = Math.max(0, Math.min(1, band.radius-Math.hypot(x+.5-cx, y+.5-cy)));
+      assert.ok(Math.abs(alpha*255-expected) <= 1.01,
+        JSON.stringify({ width: c.width, dot: c.dot, x, y, expected, actual: alpha*255 }));
+    }
+  }
+});
