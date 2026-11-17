@@ -124,4 +124,5 @@ node --test tests/*.mjs
 ```
 
 Render tests use real PyAV filters and encoders and block subprocess rendering.
-CI runs them on Linux, Windows and macOS, including the minimum PyAV version.
+CI runs them on Linux with minimum and current PyAV versions, and on Windows
+with the current runtime.
