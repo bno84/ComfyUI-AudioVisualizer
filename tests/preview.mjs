@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 
 const source = (await readFile(new URL('../web/preview.js', import.meta.url), 'utf8'))
   .replace('function draw(', 'export function draw(')
+  .replace('class Preview {', 'export class Preview {')
   .replace('import { app } from "../../scripts/app.js";', 'const app = { registerExtension() {} };');
-const { bandLayout, mockLevels, draw, vignetteFactor, spectrumPanels, splineSegments, PREVIEW_CONTROLS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { bandLayout, mockLevels, draw, vignetteFactor, spectrumPanels, splineSegments, PREVIEW_CONTROLS, Preview } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('the band sits where render.py puts it', () => {
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.16, style: 'bars', dot: 12 }),
@@ -278,5 +279,48 @@ test('mock dot diameter and pitch agree with actual FFmpeg grid samples, includi
       assert.ok(Math.abs(alpha*255-expected) <= 1.01,
         JSON.stringify({ width: c.width, dot: c.dot, x, y, expected, actual: alpha*255 }));
     }
+  }
+});
+
+
+test('preview rerenders at higher resolution when zoomed without changing node layout', () => {
+  const previousRatio = globalThis.devicePixelRatio;
+  globalThis.devicePixelRatio = 1;
+  try {
+    let displayedWidth = 320, draws = 0;
+    const image = { complete: true, naturalWidth: 1280, naturalHeight: 720, src: 'still.png' };
+    const preview = Object.create(Preview.prototype);
+    preview.node = {
+      inputs: [{ name: 'image' }], getInputNode() { return { imgs: [image] }; },
+      widgets: [{ name: 'style', value: '(none)' }],
+      setSize() { assert.fail('resolution changes must not resize the node'); },
+    };
+    preview.aspect = 720/1280;
+    preview.canvas = {
+      clientWidth: 320,
+      getBoundingClientRect() { return { width: displayedWidth }; },
+      getContext() { return {
+        save() {}, restore() {}, clearRect() {}, drawImage() { draws++; },
+      }; },
+    };
+    preview.update();
+    assert.equal(preview.canvas.width, 640);
+    assert.equal(preview.canvas.height, 360);
+    preview.update();
+    assert.equal(draws, 1);
+    displayedWidth = 960; // 3x ComfyUI zoom, same DOM layout width.
+    preview.update();
+    assert.equal(preview.canvas.width, 1920);
+    assert.equal(preview.canvas.height, 1080);
+    assert.equal(draws, 2);
+    displayedWidth = 160; // Preserve supersampling while zoomed out.
+    globalThis.devicePixelRatio = 2;
+    preview.update();
+    assert.equal(preview.canvas.width, 1280);
+    displayedWidth = 10000;
+    preview.update();
+    assert.equal(preview.canvas.width, 4096);
+  } finally {
+    globalThis.devicePixelRatio = previousRatio;
   }
 });

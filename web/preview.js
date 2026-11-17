@@ -237,7 +237,10 @@ class Preview {
   update() {
     const still = stillOf(this.node);
     const names = PREVIEW_CONTROLS;
-    const width = Math.round(this.canvas.clientWidth * devicePixelRatio);
+    // clientWidth excludes ComfyUI's zoom transform. Render at twice the
+    // larger of the layout and on-screen widths, including high-DPI displays.
+    const displayedWidth = this.canvas.getBoundingClientRect().width;
+    const width = Math.min(4096, Math.round(Math.max(this.canvas.clientWidth, displayedWidth) * devicePixelRatio * 2));
     const key = JSON.stringify([still?.src, width, names.map((n) => value(this.node, n))]);
     if (key === this.key || !width) return;
     this.key = key;
