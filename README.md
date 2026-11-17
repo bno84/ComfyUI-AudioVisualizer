@@ -1,6 +1,6 @@
 # Audio Visualizer for ComfyUI
 
-Turn a still image and audio into an MP4 or WebM with a bar or dots spectrum, or just the still image.
+Turn a still image and audio into an MP4 or WebM with bars, dots or a smooth spline spectrum, or just the still image.
 Insert your own image and use the mock preview to adjust the style.
 
 ![Node with visual style editor](docs/node-screenshot.png)
@@ -37,7 +37,7 @@ Optionally connect text to **title**, **artist**, **comment** and **lyrics**.
 Each one connected and not empty is saved in the video's metadata. Some players,
 such as Dragon Player, show the title; VLC does not.
 
-- **Visualization:** (none) (still image + audio only), bars, or dots, color, band height, gain, glow, and trails.
+- **Visualization:** (none) (still image + audio only), bars, dots, or spline, color, band height, gain, glow, and trails.
   Spectrum controls hide in (none) mode; dot spacing appears in dots mode.
 - **Band height:** the spectrum band's share of the video height, 0.1–0.9
   (default 0.35).
@@ -67,7 +67,7 @@ such as Dragon Player, show the title; VLC does not.
 The filename includes the style automatically, e.g.
 `video/song_visualizer_bars_00001_.mp4`. Disable `enabled` to skip rendering.
 
-Bars and dots measure the audio through library filters before rendering.
+All spectrum styles measure the audio through library filters before rendering.
 Quiet audio can need multiple measurement passes; (none) skips analysis.
 Rendering feeds bounded audio chunks and frames directly to the encoders,
 without temporary raw image/audio files or a full-song image batch. The video
@@ -84,18 +84,7 @@ Workflows saved with 0.1 keep their settings, but gain resets to 1.3: it used
 to be a raw volume. API prompts from 0.1 need `band_height` and a gain between
 0.25 and 2.0.
 
-## Tests
-
-```sh
-python3 -m pip install -r requirements.txt numpy
-python3 -m unittest discover -s tests
-node --test tests/*.mjs
-```
-
-Render tests use real PyAV filters and encoders and block subprocess rendering.
-CI runs them on Linux, Windows and macOS, including the minimum PyAV version.
-
-### Mirrored stereo and spline graphs
+## Mirrored stereo and spline graphs
 
 Choose `spline` for an antialiased spectrum line with shape-preserving cubic
 interpolation between 64 frequency bands. `line_thickness` sets the stroke width
@@ -125,3 +114,14 @@ For `bars`, `bar_count` selects 8–256 bars (default 64), per side when stereo
 mirroring is enabled. Each spectrum needs at least `2 * bar_count + 2` output
 pixels of width. The mock uses the same count and spacing. Other styles keep
 their existing frequency resolution.
+
+## Tests
+
+```sh
+python3 -m pip install -r requirements.txt numpy
+python3 -m unittest discover -s tests
+node --test tests/*.mjs
+```
+
+Render tests use real PyAV filters and encoders and block subprocess rendering.
+CI runs them on Linux, Windows and macOS, including the minimum PyAV version.
