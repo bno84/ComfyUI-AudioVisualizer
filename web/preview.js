@@ -108,10 +108,23 @@ export function mockLevels(columns, gain) {
   return levels.map((level) => (gain * Math.max(level, 0)) / loudest);
 }
 
-function stillOf(node) {
+// The render uses the pack's default still when no image reaches the node:
+// unconnected, or from a bypassed or muted source. Loaded on first use.
+let fallback;
+function defaultStill() {
+  fallback ??= Object.assign(new Image(), { src: new URL("./default-still.png", import.meta.url).href });
+  return fallback;
+}
+
+export function activeSource(node) {
   const slot = node.inputs?.findIndex((input) => input.name === "image");
   const source = slot >= 0 ? node.getInputNode?.(slot) : null;
-  const image = source?.imgs?.[0];
+  return source && !source.mode ? source : null;
+}
+
+function stillOf(node) {
+  const source = activeSource(node);
+  const image = source ? source.imgs?.[0] : defaultStill();
   return image?.complete && image.naturalWidth ? image : null;
 }
 

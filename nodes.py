@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import folder_paths
 
@@ -13,13 +14,24 @@ except ImportError:  # older ComfyUI
 CATEGORY = "audio/visualize"
 
 
+DEFAULT_STILL = Path(__file__).parent / "web" / "default-still.png"
+
+
+def default_still():
+    """The still used without a connected image, as a [1, H, W, 3] float image batch."""
+    import numpy as np
+    import torch
+    from PIL import Image
+    with Image.open(DEFAULT_STILL) as picture:
+        pixels = np.asarray(picture.convert("RGB"), dtype=np.float32) / 255
+    return torch.from_numpy(pixels)[None]
+
+
 class AudioVisualizer:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE", {"lazy": True, "tooltip": "the still; sets the video size, odd sides +1px "
-                                                             "(first image of a batch)"}),
                 "audio": ("AUDIO", {"lazy": True}),
                 "enabled": ("BOOLEAN", {"default": True, "tooltip": "off = render nothing and block the video "
                                                                     "output; image and audio aren't requested"}),
@@ -74,6 +86,9 @@ class AudioVisualizer:
             },
             # Player info, link-only: unconnected or empty means nothing is written.
             "optional": {
+                "image": ("IMAGE", {"lazy": True, "tooltip": "the still; sets the video size, odd sides +1px "
+                                                             "(first image of a batch). Unconnected or bypassed: "
+                                                             "the pack's default still, 1280x720"}),
                 "title": ("STRING", {"forceInput": True, "tooltip": "Video title; players such as Dragon Player show it."}),
                 "artist": ("STRING", {"forceInput": True, "tooltip": "Video artist."}),
                 "comment": ("STRING", {"forceInput": True, "tooltip": "Video comment, such as the music style."}),
@@ -90,15 +105,17 @@ class AudioVisualizer:
     DESCRIPTION = ("🎵 Still image + audio → 30 or 60 fps MP4 or WebM with a constant-Q spectrum band along the bottom, "
                    "rendered by PyAV using CPU FFmpeg filters. Saves to the output folder with the workflow embedded.")
 
-    def check_lazy_status(self, enabled, image=None, audio=None, **_):
-        return [name for name, value in (("image", image), ("audio", audio)) if enabled and value is None]
+    def check_lazy_status(self, enabled, **inputs):
+        # An unconnected optional image is absent, not None; asking for it would be an error.
+        return [name for name in ("image", "audio") if enabled and name in inputs and inputs[name] is None]
 
-    def run(self, image, audio, enabled, filename_prefix, style, gain, color, glow, trail, crf, audio_codec,
+    def run(self, audio, enabled, filename_prefix, style, gain, color, glow, trail, crf, audio_codec,
             start, duration, prompt=None, extra_pnginfo=None, fps=60, aac_bitrate=192, h264_crf=22, h265_crf=18,
             video_codec="h264", opus_bitrate=192, dot_spacing=17, codec=None, audio_bitrate=None, dot=None,
             band_height=R.DEFAULT_BAND, vignette=R.DEFAULT_VIGNETTE,
             fade_in=R.DEFAULT_FADE_IN, fade_out=R.DEFAULT_FADE_OUT, title="", artist="", comment="", lyrics="",
-            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0, bar_count=64):
+            container="mp4", vp9_crf=20, stereo_mirror=False, stereo_gap=0, line_thickness=2.0, bar_count=64,
+            image=None):
         if not enabled:
             return {"ui": {}, "result": (ExecutionBlocker(None),)}
         import comfy.model_management as mm
@@ -107,7 +124,7 @@ class AudioVisualizer:
         from comfy_api.latest import InputImpl
 
         import torch.nn.functional as F
-        still = image[0, :, :, :3]
+        still = (default_still() if image is None else image)[0, :, :, :3]
         height, width = still.shape[:2]
         if width % 2 or height % 2:                          # yuv420p needs even sizes: repeat the last row/column
             still = F.pad(still.permute(2, 0, 1)[None], (0, width % 2, 0, height % 2), mode="replicate")[0]

@@ -6,7 +6,7 @@ const source = (await readFile(new URL('../web/preview.js', import.meta.url), 'u
   .replace('function draw(', 'export function draw(')
   .replace('class Preview {', 'export class Preview {')
   .replace('import { app } from "../../scripts/app.js";', 'const app = { registerExtension() {} };');
-const { bandLayout, mockLevels, draw, vignetteFactor, spectrumPanels, splineSegments, PREVIEW_CONTROLS, Preview } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { bandLayout, mockLevels, draw, vignetteFactor, spectrumPanels, splineSegments, PREVIEW_CONTROLS, Preview, activeSource } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('the band sits where render.py puts it', () => {
   assert.deepEqual(bandLayout({ width: 1280, height: 720, bandHeight: 0.16, style: 'bars', dot: 12 }),
@@ -342,4 +342,13 @@ test('bar mock uses the selected count for each stereo half and keeps other styl
     assert.equal(bandLayout({ ...options, style: 'spline' }).columns, 64);
     assert.equal(bandLayout({ ...options, style: 'dots' }).columns, Math.floor(1028/17));
   }
+});
+
+test('a bypassed, muted or missing image source leaves the default still to the render', () => {
+  const node = (source) => ({ inputs: [{ name: 'audio' }, { name: 'image' }], getInputNode: (slot) => (slot === 1 ? source : null) });
+  const loader = (mode) => ({ mode, imgs: [] });
+  assert.equal(activeSource(node(loader(0))).mode, 0);
+  for (const mode of [2, 4]) assert.equal(activeSource(node(loader(mode))), null);
+  assert.equal(activeSource(node(null)), null);
+  assert.equal(activeSource({ inputs: [] }), null);
 });

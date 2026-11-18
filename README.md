@@ -30,8 +30,12 @@ overlaying a pip installation; codec availability depends on that build.
 ## Use
 
 Add **🎵 Audio visualizer video (still + spectrum)** from **audio/visualize**
-and connect an image and audio. It saves to ComfyUI's output folder and
-returns a `VIDEO`, with the workflow embedded in the file.
+and connect audio and, optionally, a still image. It saves to ComfyUI's output
+folder and returns a `VIDEO`, with the workflow embedded in the file.
+
+Without an image, it uses the pack's default still (1280×720). That includes a
+connected Load Image that is bypassed or muted, so a workflow can ship one
+ready to switch on without needing the file.
 
 Optionally connect text to **title**, **artist**, **comment** and **lyrics**.
 Each one connected and not empty is saved in the video's metadata. Some players,
